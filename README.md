@@ -1,6 +1,6 @@
 # furb_cli: Furbtendulator, headless, for Linux
 
-This package is Furbtendulator built as a command-line Linux program.
+This package is Furbtendulator (https://github.com/FurblandChannel/Furbtendulator) built as a command-line Linux program.
 Furbtendulator is a fork of NintendulatorNRS, the reference emulator for
 VT02/VT03/VT09/VT369 "OneBus" famiclones. It has no window. It runs a ROM for
 a set number of frames with scripted input and writes out frames, sound,
