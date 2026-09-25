@@ -3,7 +3,6 @@
 #ifndef DIRECTINPUT_VERSION
 #define DIRECTINPUT_VERSION 0x0800
 #endif
-typedef WinCOM IDirectInput8, *LPDIRECTINPUT8, IDirectInputDevice8, *LPDIRECTINPUTDEVICE8;
 typedef struct { LONG lX, lY, lZ, lRx, lRy, lRz; LONG rglSlider[2]; DWORD rgdwPOV[4]; BYTE rgbButtons[128];
 	LONG lVX, lVY, lVZ, lVRx, lVRy, lVRz; LONG rglVSlider[2]; LONG lAX, lAY, lAZ, lARx, lARy, lARz; LONG rglASlider[2];
 	LONG lFX, lFY, lFZ, lFRx, lFRy, lFRz; LONG rglFSlider[2]; } DIJOYSTATE2;
@@ -22,8 +21,11 @@ typedef struct { DIPROPHEADER diph; LONG lMin, lMax; } DIPROPRANGE;
 typedef struct { DIPROPHEADER diph; DWORD dwData; } DIPROPDWORD;
 typedef struct { DWORD dwSize, dwObjSize, dwFlags, dwDataSize, dwNumObjs; void *rgodf; } DIDATAFORMAT;
 extern const DIDATAFORMAT c_dfDIKeyboard, c_dfDIMouse2, c_dfDIJoystick2;
-static const GUID GUID_SysKeyboard = {0}, GUID_SysMouse = {0}, IID_IDirectInput8 = {0}, GUID_XAxis = {0}, GUID_YAxis = {0},
-	GUID_ZAxis = {0}, GUID_RxAxis = {0}, GUID_RyAxis = {0}, GUID_RzAxis = {0}, GUID_Slider = {0}, GUID_POV = {0}, GUID_Button = {0}, GUID_Key = {0};
+// Distinct values (only Data1 differs): Controllers.cpp tells devices and
+// device objects apart by these.  Joysticks get guidInstance Data1 0x100+n.
+static const GUID GUID_SysKeyboard = {1}, GUID_SysMouse = {2}, IID_IDirectInput8 = {3}, GUID_XAxis = {0x10}, GUID_YAxis = {0x11},
+	GUID_ZAxis = {0x12}, GUID_RxAxis = {0x13}, GUID_RyAxis = {0x14}, GUID_RzAxis = {0x15}, GUID_Slider = {0x16}, GUID_POV = {0x17},
+	GUID_Button = {0x18}, GUID_Key = {0x19};
 enum { DIENUM_CONTINUE = 1, DIENUM_STOP = 0, DISCL_NONEXCLUSIVE = 2, DISCL_EXCLUSIVE = 1, DISCL_FOREGROUND = 4,
 	DISCL_BACKGROUND = 8, DI8DEVCLASS_GAMECTRL = 4, DI8DEVCLASS_ALL = 0, DIEDFL_ATTACHEDONLY = 1, DIDFT_AXIS = 3,
 	DIDFT_BUTTON = 0xC, DIDFT_POV = 0x10, DIDFT_ALL = 0, DIPH_DEVICE = 0, DIPH_BYID = 2, DIPH_BYOFFSET = 1,
@@ -166,3 +168,30 @@ enum {
 	DIK_F15 = 0x66,
 	DIEDFL_ALLDEVICES = 0,
 };
+
+// DirectInput 8 as Controllers.cpp uses it.  furb_cli sets the device state
+// arrays itself (DirectInput8Create fails); the GUI implements the keyboard
+// and mouse from its window's events and joysticks with SDL (gui/dx.cpp).
+struct IDirectInputDevice8 {
+	virtual HRESULT SetDataFormat(const DIDATAFORMAT *f) = 0;
+	virtual HRESULT SetCooperativeLevel(HWND h, DWORD flags) = 0;
+	virtual HRESULT GetCapabilities(DIDEVCAPS *caps) = 0;
+	virtual HRESULT GetDeviceInfo(DIDEVICEINSTANCE *inst) = 0;
+	virtual HRESULT EnumObjects(LPDIENUMDEVICEOBJECTSCALLBACK cb, LPVOID ref, DWORD flags) = 0;
+	virtual HRESULT Acquire(void) = 0;
+	virtual HRESULT Unacquire(void) = 0;
+	virtual HRESULT GetDeviceState(DWORD size, LPVOID data) = 0;
+	virtual HRESULT Poll(void) = 0;
+	virtual HRESULT SetProperty(REFGUID prop, const DIPROPHEADER *h) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectInputDevice8() {}
+};
+struct IDirectInput8 {
+	virtual HRESULT CreateDevice(REFGUID guid, IDirectInputDevice8 **out, IUnknown *outer) = 0;
+	virtual HRESULT EnumDevices(DWORD type, LPDIENUMDEVICESCALLBACK cb, LPVOID ref, DWORD flags) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectInput8() {}
+};
+typedef IDirectInput8 *LPDIRECTINPUT8;
+typedef IDirectInputDevice8 *LPDIRECTINPUTDEVICE8;
+HRESULT DirectInput8Create(HINSTANCE h, DWORD version, REFIID iid, void **out, IUnknown *outer);

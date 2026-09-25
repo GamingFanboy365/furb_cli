@@ -1,7 +1,5 @@
 #pragma once
 #include <windows.h>
-typedef WinCOM IDirectDraw7, *LPDIRECTDRAW7, *LPDIRECTDRAW, IDirectDrawSurface7, *LPDIRECTDRAWSURFACE7,
-	*LPDIRECTDRAWSURFACE, IDirectDrawClipper, *LPDIRECTDRAWCLIPPER;
 typedef struct { DWORD dwCaps, dwCaps2, dwCaps3, dwCaps4; } DDSCAPS2;
 typedef struct { DWORD dwSize, dwFlags, dwFourCC, dwRGBBitCount, dwRBitMask, dwGBitMask, dwBBitMask, dwRGBAlphaBitMask; } DDPIXELFORMAT;
 typedef struct { DWORD dwSize, dwFlags, dwHeight, dwWidth; LONG lPitch; DWORD dwBackBufferCount, dwRefreshRate, dwAlphaBitDepth, dwReserved;
@@ -128,3 +126,39 @@ static const GUID IID_IDirectDraw7 = {0};
 #define DDERR_WRONGMODE ((HRESULT)(int32_t)0x8876106A)
 #define DDERR_XALIGN ((HRESULT)(int32_t)0x8876106B)
 #define DSDEVID_DefaultPlayback (*(const GUID *)0)
+
+// DirectDraw as GFX.cpp uses it, as COM-style interfaces.  furb_cli has no
+// display (DirectDrawCreateEx fails, as with no DirectX installed); the GUI
+// implements them with in-memory surfaces blitted to its window (gui/dx.cpp).
+struct IDirectDrawClipper {
+	virtual HRESULT SetHWnd(DWORD flags, HWND h) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectDrawClipper() {}
+};
+struct IDirectDrawSurface7 {
+	virtual HRESULT Lock(RECT *r, DDSURFACEDESC2 *desc, DWORD flags, HANDLE ev) = 0;
+	virtual HRESULT Unlock(RECT *r) = 0;
+	virtual HRESULT Blt(RECT *dst, IDirectDrawSurface7 *src, RECT *srcr, DWORD flags, DDBLTFX *fx) = 0;
+	virtual HRESULT Flip(IDirectDrawSurface7 *target, DWORD flags) = 0;
+	virtual HRESULT GetAttachedSurface(DDSCAPS2 *caps, IDirectDrawSurface7 **out) = 0;
+	virtual HRESULT GetSurfaceDesc(DDSURFACEDESC2 *desc) = 0;
+	virtual HRESULT SetClipper(IDirectDrawClipper *c) = 0;
+	virtual HRESULT IsLost(void) = 0;
+	virtual HRESULT Restore(void) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectDrawSurface7() {}
+};
+struct IDirectDraw7 {
+	virtual HRESULT SetCooperativeLevel(HWND h, DWORD flags) = 0;
+	virtual HRESULT SetDisplayMode(DWORD w, DWORD h, DWORD bpp, DWORD rate, DWORD flags) = 0;
+	virtual HRESULT RestoreDisplayMode(void) = 0;
+	virtual HRESULT CreateSurface(DDSURFACEDESC2 *desc, IDirectDrawSurface7 **out, IUnknown *outer) = 0;
+	virtual HRESULT CreateClipper(DWORD flags, IDirectDrawClipper **out, IUnknown *outer) = 0;
+	virtual HRESULT WaitForVerticalBlank(DWORD flags, HANDLE ev) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectDraw7() {}
+};
+typedef IDirectDraw7 *LPDIRECTDRAW7, *LPDIRECTDRAW;
+typedef IDirectDrawSurface7 *LPDIRECTDRAWSURFACE7, *LPDIRECTDRAWSURFACE;
+typedef IDirectDrawClipper *LPDIRECTDRAWCLIPPER;
+HRESULT DirectDrawCreateEx(GUID *guid, void **out, REFIID iid, IUnknown *outer);

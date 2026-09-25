@@ -162,6 +162,10 @@ template <class T> inline bool operator==(WinZero, T *a) { return a == nullptr; 
 template <class T> inline bool operator!=(T *a, WinZero) { return a != nullptr; }
 template <class T> inline bool operator!=(WinZero, T *a) { return a != nullptr; }
 #define WINSTUB(name) template <class... A> inline WinZero name(A&&...) { return WinZero(); }
+// The typed zero an inert or unresolved API returns (E_FAIL for HRESULT).
+template <class T> inline T furb_zero() { return T(); }
+template <> inline HRESULT furb_zero<HRESULT>() { return E_FAIL; }
+template <> inline void furb_zero<void>() {}
 
 // ---------------------------------------------------------------- structs
 typedef struct tagPOINT { LONG x, y; } POINT, *LPPOINT;
@@ -457,7 +461,6 @@ int furb_wremove(const wchar_t *);
 #define _waccess(p, m) furb_access(furb_narrow(p).c_str(), (m))
 
 // ---------------------------------------------------------------- misc runtime
-inline void Sleep(DWORD) {}
 DWORD GetTickCount(void);
 inline DWORD timeGetTime(void) { return GetTickCount(); }
 inline BOOL QueryPerformanceCounter(LARGE_INTEGER *v) { v->QuadPart = GetTickCount(); return TRUE; }
@@ -501,37 +504,37 @@ inline int WideCharToMultiByte(UINT, DWORD, const wchar_t *w, int n, char *s, in
 // ---------------------------------------------------------------- stubbed API
 // Window / menu / dialog / GDI / registry / shell / DLL: all inert.
 WINSTUB(MessageBoxA) 
-WINSTUB(EnableMenuItem) WINSTUB(CheckMenuItem) WINSTUB(CheckMenuRadioItem) WINSTUB(GetMenu)
-WINSTUB(SetMenu) WINSTUB(GetSubMenu) WINSTUB(DrawMenuBar) WINSTUB(ModifyMenu) WINSTUB(InsertMenu)
-WINSTUB(AppendMenu) WINSTUB(DeleteMenu) WINSTUB(RemoveMenu) WINSTUB(CreatePopupMenu) WINSTUB(CreateMenu)
-WINSTUB(GetMenuItemCount) WINSTUB(TrackPopupMenu) WINSTUB(DestroyMenu) WINSTUB(GetMenuState) WINSTUB(LoadMenu)
 
 
 
-WINSTUB(PostMessage) WINSTUB(PeekMessage) WINSTUB(GetMessage) WINSTUB(TranslateMessage)
-WINSTUB(DispatchMessage) WINSTUB(TranslateAccelerator) WINSTUB(IsDialogMessage) WINSTUB(PostQuitMessage)
-WINSTUB(DefWindowProc) WINSTUB(CallWindowProc) WINSTUB(RegisterClassEx) WINSTUB(RegisterClass) WINSTUB(CreateWindow)
-WINSTUB(CreateWindowEx) WINSTUB(DestroyWindow) WINSTUB(ShowWindow) WINSTUB(UpdateWindow) WINSTUB(SetWindowPos)
-WINSTUB(MoveWindow) WINSTUB(GetWindowRect) 
-WINSTUB(AdjustWindowRect) WINSTUB(AdjustWindowRectEx) WINSTUB(SetWindowText) WINSTUB(GetWindowText)
-WINSTUB(SetWindowLong) WINSTUB(GetWindowLong) WINSTUB(SetWindowLongPtr) WINSTUB(GetWindowLongPtr)
-WINSTUB(InvalidateRect) WINSTUB(RedrawWindow) WINSTUB(IsWindow) WINSTUB(IsWindowVisible) WINSTUB(IsIconic) WINSTUB(IsZoomed)
-WINSTUB(SetFocus) WINSTUB(GetFocus) WINSTUB(SetForegroundWindow) WINSTUB(GetForegroundWindow) WINSTUB(EnableWindow)
-WINSTUB(GetWindowPlacement) WINSTUB(SetWindowPlacement) WINSTUB(MonitorFromWindow) WINSTUB(GetMonitorInfo)
-WINSTUB(GetSystemMetrics) WINSTUB(SystemParametersInfo) WINSTUB(SetThreadExecutionState) WINSTUB(GetDesktopWindow)
-WINSTUB(SetTimer) WINSTUB(KillTimer) WINSTUB(SetScrollInfo) WINSTUB(GetScrollInfo) WINSTUB(SetScrollPos)
-WINSTUB(GetScrollPos) WINSTUB(SetScrollRange) WINSTUB(ShowScrollBar) WINSTUB(EnableScrollBar)
-WINSTUB(LoadCursor) WINSTUB(LoadIcon) WINSTUB(LoadImage) WINSTUB(LoadBitmap) WINSTUB(LoadAccelerators) WINSTUB(LoadString)
-WINSTUB(SetCursor) WINSTUB(ShowCursor) WINSTUB(ClipCursor) WINSTUB(GetCursorPos_) WINSTUB(SetCursorPos_)
-WINSTUB(GetKeyState) WINSTUB(GetAsyncKeyState) WINSTUB(MapVirtualKey) WINSTUB(GetKeyNameText) WINSTUB(GetKeyboardState)
-WINSTUB(SetCapture) WINSTUB(ReleaseCapture) WINSTUB(GetDC) WINSTUB(ReleaseDC) WINSTUB(BeginPaint) WINSTUB(EndPaint)
-WINSTUB(CreateCompatibleDC) WINSTUB(CreateCompatibleBitmap) WINSTUB(CreateDIBSection) WINSTUB(DeleteDC)
-WINSTUB(DeleteObject) WINSTUB(SelectObject) WINSTUB(GetStockObject) WINSTUB(SetDIBits) WINSTUB(GetDIBits)
-WINSTUB(StretchDIBits) WINSTUB(SetDIBitsToDevice) WINSTUB(BitBlt) WINSTUB(StretchBlt) WINSTUB(FillRect)
-WINSTUB(FrameRect) WINSTUB(CreateSolidBrush) WINSTUB(CreatePen) WINSTUB(CreateFont) WINSTUB(CreateFontIndirect)
-WINSTUB(GetSysColor) WINSTUB(GetSysColorBrush) WINSTUB(SetTextColor) WINSTUB(SetBkColor) WINSTUB(SetBkMode)
-WINSTUB(TextOut) WINSTUB(DrawText) WINSTUB(GetTextExtentPoint32) WINSTUB(Rectangle) WINSTUB(MoveToEx) WINSTUB(LineTo)
-WINSTUB(SetPixel) WINSTUB(GetPixel) WINSTUB(SetStretchBltMode) WINSTUB(GetDeviceCaps) WINSTUB(GetObject)
+
+
+
+
+
+
+WINSTUB(RegisterClass) 
+
+
+
+
+
+
+
+WINSTUB(SystemParametersInfo) WINSTUB(SetThreadExecutionState) 
+
+WINSTUB(EnableScrollBar)
+WINSTUB(LoadImage) WINSTUB(LoadBitmap) 
+WINSTUB(GetCursorPos_) WINSTUB(SetCursorPos_)
+WINSTUB(GetKeyboardState)
+
+
+
+
+
+
+
+
 // Registry: one flat key (SOFTWARE\Nintendulator), held in memory by the
 // executable and filled from --config (a regedit .reg export or key=value
 // file) and --set.  A value that is not there answers "not found", so its
@@ -545,35 +548,35 @@ LONG RegQueryValueEx(HKEY, LPCTSTR name, DWORD *, DWORD *type, BYTE *data, DWORD
 LONG RegSetValueEx(HKEY, LPCTSTR name, DWORD, DWORD type, const BYTE *data, DWORD size);
 #define REGSTUB(name) template <class... A> inline LONG name(A&&...) { return ERROR_FILE_NOT_FOUND; }
 REGSTUB(RegDeleteValue) REGSTUB(RegDeleteKey) REGSTUB(RegEnumValue) REGSTUB(RegEnumKeyEx)
-WINSTUB(SHGetFolderPath) WINSTUB(SHGetSpecialFolderPath)
+WINSTUB(SHGetSpecialFolderPath)
 WINSTUB(SHCreateDirectoryEx) WINSTUB(SHBrowseForFolder) WINSTUB(SHGetPathFromIDList) WINSTUB(CoTaskMemFree)
-WINSTUB(ShellExecute) WINSTUB(DragAcceptFiles) WINSTUB(DragQueryFile) WINSTUB(DragFinish) 
+
 WINSTUB(PathRemoveFileSpec) WINSTUB(PathCombine) WINSTUB(PathFindExtension)
 WINSTUB(PathFindFileName) WINSTUB(PathRemoveExtension) WINSTUB(PathIsDirectory)
-WINSTUB(LoadLibraryA) WINSTUB(GetModuleHandle)
-WINSTUB(CreateThread) WINSTUB(SetThreadPriority) WINSTUB(GetCurrentThread) WINSTUB(WaitForSingleObject)
+WINSTUB(LoadLibraryA) 
+WINSTUB(SetThreadPriority) WINSTUB(GetCurrentThread) 
 WINSTUB(CreateEvent) WINSTUB(SetEvent) WINSTUB(ResetEvent) WINSTUB(MsgWaitForMultipleObjects)
 WINSTUB(timeBeginPeriod) WINSTUB(timeEndPeriod) WINSTUB(timeSetEvent) WINSTUB(timeKillEvent)
 WINSTUB(InitCommonControls) WINSTUB(InitCommonControlsEx) WINSTUB(ImageList_Create) WINSTUB(OpenClipboard)
 WINSTUB(CloseClipboard) WINSTUB(EmptyClipboard) WINSTUB(SetClipboardData) WINSTUB(GetClipboardData)
 WINSTUB(GlobalAlloc) WINSTUB(GlobalLock) WINSTUB(GlobalUnlock) WINSTUB(GlobalFree) WINSTUB(Beep) WINSTUB(MessageBeep)
 WINSTUB(CoInitialize) WINSTUB(CoInitializeEx) WINSTUB(CoUninitialize) WINSTUB(CoCreateInstance)
-WINSTUB(DirectDrawCreateEx) WINSTUB(DirectSoundCreate8) WINSTUB(DirectInput8Create)
+
 WINSTUB(AVIFileInit) WINSTUB(AVIFileExit) WINSTUB(AVIFileOpen) WINSTUB(AVIFileRelease) WINSTUB(AVIFileCreateStream)
 WINSTUB(AVIStreamRelease) WINSTUB(AVIStreamWrite) WINSTUB(AVIStreamSetFormat) WINSTUB(AVIMakeCompressedStream)
 WINSTUB(AVISaveOptions) WINSTUB(AVISaveOptionsFree) WINSTUB(acmStreamOpen) WINSTUB(acmStreamClose)
 WINSTUB(acmStreamPrepareHeader) WINSTUB(acmStreamUnprepareHeader) WINSTUB(acmStreamConvert) WINSTUB(acmStreamSize)
 WINSTUB(acmFormatSuggest) WINSTUB(acmMetrics) WINSTUB(ListView_SetExtendedListViewStyle) WINSTUB(ListView_InsertColumn)
 WINSTUB(ListView_InsertItem) WINSTUB(ListView_SetItemText) WINSTUB(ListView_DeleteAllItems) WINSTUB(ListView_GetNextItem)
-WINSTUB(ListView_SetItemState) WINSTUB(ListView_GetItemCount) WINSTUB(ListView_SetCheckState) WINSTUB(ListView_GetCheckState)
+WINSTUB(ListView_SetItemState) WINSTUB(ListView_GetItemCount) 
 WINSTUB(GetLastError) WINSTUB(FormatMessage) WINSTUB(LocalFree) WINSTUB(GetTempPath) WINSTUB(GetTempFileName)
 WINSTUB(GetFullPathName) WINSTUB(SetCurrentDirectory)
 WINSTUB(GetPrivateProfileInt) WINSTUB(GetPrivateProfileString) WINSTUB(WritePrivateProfileString)
 WINSTUB(EnumDisplaySettings) WINSTUB(ChangeDisplaySettings) WINSTUB(ComboBox_AddString) WINSTUB(ComboBox_SetCurSel)
 WINSTUB(ComboBox_GetCurSel) WINSTUB(Button_GetCheck) WINSTUB(Button_SetCheck)
-WINSTUB(DragQueryPoint) WINSTUB(IsWindowEnabled) WINSTUB(GetParent) WINSTUB(SetParent) WINSTUB(BringWindowToTop)
-WINSTUB(WindowFromPoint) WINSTUB(ChildWindowFromPoint) WINSTUB(GetWindowDC) WINSTUB(ValidateRect)
-WINSTUB(SetClassLongPtr) WINSTUB(GetClassLongPtr) WINSTUB(SetActiveWindow) WINSTUB(GetActiveWindow)
+WINSTUB(DragQueryPoint) WINSTUB(SetParent) 
+WINSTUB(WindowFromPoint) WINSTUB(ChildWindowFromPoint) WINSTUB(ValidateRect)
+WINSTUB(SetClassLongPtr) WINSTUB(GetClassLongPtr) 
 WINSTUB(CreateFile) WINSTUB(ReadFile) WINSTUB(WriteFile) WINSTUB(GetFileSize) WINSTUB(SetFilePointer)
 WINSTUB(MulDiv) WINSTUB(SetLayeredWindowAttributes) WINSTUB(GetCommandLine) WINSTUB(CommandLineToArgvW)
 WINSTUB(MapWindowPoints) WINSTUB(GetWindowThreadProcessId) WINSTUB(EnumWindows) WINSTUB(FlashWindow)
@@ -628,54 +631,51 @@ BOOL FindClose(HANDLE h);
 HMODULE LoadLibrary(const wchar_t *name);
 void *GetProcAddress(HMODULE h, const char *name);
 BOOL FreeLibrary(HMODULE h);
-WINSTUB(CommDlgExtendedError) WINSTUB(DestroyCursor) 
-WINSTUB(ExitThread) WINSTUB(TerminateThread) WINSTUB(GetCurrentObject) 
-WINSTUB(RegisterHotKey) WINSTUB(UnregisterHotKey) WINSTUB(SetFileAttributes)
+WINSTUB(CommDlgExtendedError) 
+
+WINSTUB(SetFileAttributes)
 
 
 // ---------------------------------------------------------------- host services
-// Implemented by furb_cli (compat.cpp in the executable); the mapper packs
-// reach the same implementations through dlsym, so there is one set of
-// dialog / cursor / file-picker state.  Dialogs are "headless": a dialog the
-// CLI has a script for runs its real dialog procedure against a fake dialog
-// (control text, check state, trackbar positions); any other modal dialog is
-// cancelled, exactly as if the user had pressed Cancel.
-int MessageBox(HWND, LPCTSTR text, LPCTSTR caption, UINT type);
-#define MessageBoxW MessageBox
-INT_PTR DialogBoxParam(HINSTANCE, LPCTSTR tmpl, HWND parent, DLGPROC proc, LPARAM lp);
-INT_PTR DialogBoxIndirectParam(HINSTANCE, LPCDLGTEMPLATE tmpl, HWND parent, DLGPROC proc, LPARAM lp);
-HWND CreateDialogParam(HINSTANCE, LPCTSTR tmpl, HWND parent, DLGPROC proc, LPARAM lp);
-HWND CreateDialogIndirectParam(HINSTANCE, LPCDLGTEMPLATE tmpl, HWND parent, DLGPROC proc, LPARAM lp);
-inline INT_PTR DialogBox(HINSTANCE h, LPCTSTR t, HWND p, DLGPROC f) { return DialogBoxParam(h, t, p, f, 0); }
-inline INT_PTR DialogBoxIndirect(HINSTANCE h, LPCDLGTEMPLATE t, HWND p, DLGPROC f) { return DialogBoxIndirectParam(h, t, p, f, 0); }
-inline HWND CreateDialog(HINSTANCE h, LPCTSTR t, HWND p, DLGPROC f) { return CreateDialogParam(h, t, p, f, 0); }
-inline HWND CreateDialogIndirect(HINSTANCE h, LPCDLGTEMPLATE t, HWND p, DLGPROC f) { return CreateDialogIndirectParam(h, t, p, f, 0); }
-BOOL EndDialog(HWND, INT_PTR);
-HWND GetDlgItem(HWND, int);
-BOOL SetDlgItemText(HWND, int, LPCTSTR);
-UINT GetDlgItemText(HWND, int, LPTSTR, int);
-BOOL SetDlgItemInt(HWND, int, UINT, BOOL);
-UINT GetDlgItemInt(HWND, int, BOOL *, BOOL);
-BOOL CheckDlgButton(HWND, int, UINT);
-UINT IsDlgButtonChecked(HWND, int);
-BOOL CheckRadioButton(HWND, int, int, int);
-LRESULT SendDlgItemMessage(HWND, int, UINT, WPARAM, LPARAM);
-LRESULT SendMessage(HWND, UINT, WPARAM, LPARAM);
-int GetWindowTextLength(HWND);
-BOOL GetOpenFileName(OPENFILENAME *);
-BOOL GetSaveFileName(OPENFILENAME *);
-BOOL GetCursorPos(POINT *);
-BOOL SetCursorPos(int, int);
-BOOL GetClientRect(HWND, RECT *);
-BOOL ScreenToClient(HWND, POINT *);
-BOOL ClientToScreen(HWND, POINT *);
-float furb_mic_level(void);
+// Declared from winapi.def: implemented for real by the GUI (gui/*.cpp), inert
+// or headless in furb_cli (host_cli.cpp), forwarded to the executable from the
+// mapper packs (compat.cpp).  In furb_cli dialogs are "headless": a dialog the
+// CLI has a script for runs its real dialog procedure against a fake dialog;
+// any other modal dialog is cancelled, as if the user had pressed Cancel.
 // Real file-system helpers (paths use '\\' in the sources; see compat.cpp)
 DWORD GetFileAttributes(LPCTSTR);
 BOOL CreateDirectory(LPCTSTR, void *);
 BOOL PathAppend(LPTSTR, LPCTSTR);
 BOOL PathFileExists(LPCTSTR);
 enum { TBM_SETRANGEMIN = 0x407, TBM_SETRANGEMAX = 0x408, TBM_GETRANGEMIN = 0x401, TBM_GETRANGEMAX = 0x402 };
+
+
+#define W(ret, name, params, args) ret name params;
+#define H W
+#define WR W
+#define HR W
+#include "winapi.def"
+#undef W
+#undef H
+#undef WR
+#undef HR
+#define MessageBoxW MessageBox
+inline INT_PTR DialogBox(HINSTANCE h, LPCTSTR t, HWND p, DLGPROC f) { return DialogBoxParam(h, t, p, f, 0); }
+inline INT_PTR DialogBoxIndirect(HINSTANCE h, LPCDLGTEMPLATE t, HWND p, DLGPROC f) { return DialogBoxIndirectParam(h, t, p, f, 0); }
+inline HWND CreateDialog(HINSTANCE h, LPCTSTR t, HWND p, DLGPROC f) { return CreateDialogParam(h, t, p, f, 0); }
+inline HWND CreateDialogIndirect(HINSTANCE h, LPCDLGTEMPLATE t, HWND p, DLGPROC f) { return CreateDialogIndirectParam(h, t, p, f, 0); }
+inline HWND CreateWindow(LPCTSTR cls, LPCTSTR name, DWORD style, int x, int y, int w, int h, HWND parent, HMENU menu, HINSTANCE hi, LPVOID param) {
+	return CreateWindowEx(0, cls, name, style, x, y, w, h, parent, menu, hi, param);
+}
+// list views (the cheat list's check boxes)
+enum { LVM_SETITEMSTATE = 0x102B, LVM_GETITEMSTATE = 0x102C, LVIS_STATEIMAGEMASK = 0xF000, LVIF_STATE = 8 };
+inline void ListView_SetCheckState(HWND h, int i, BOOL check) {
+	LVITEM it = {}; it.stateMask = LVIS_STATEIMAGEMASK; it.state = (check ? 2u : 1u) << 12;
+	SendMessage(h, LVM_SETITEMSTATE, (WPARAM)i, (LPARAM)&it);
+}
+inline BOOL ListView_GetCheckState(HWND h, int i) {
+	return (BOOL)(((SendMessage(h, LVM_GETITEMSTATE, (WPARAM)i, LVIS_STATEIMAGEMASK) >> 12) - 1) & 1);
+}
 
 #endif // __cplusplus
 #endif // FURB_COMPAT_WINDOWS_H

@@ -91,6 +91,24 @@ MAIN_INC = ['-I' + os.path.join(SRC, 'src-main', 'src'), '-fkeep-inline-function
 EMU = ['-include', 'furb_math.h']	# libm calls -> the bundled musl subset (compat/furb_math.h)
 DLL_FLAGS = ['-fPIC', '-fvisibility=hidden', '-D_USRDLL', '-DFURB_PACK']
 
+# Each module's .rc script (menus, accelerators, dialogs, strings) compiled to
+# C++ tables by gui/rc2cpp.py; the address of a module's table is its
+# HINSTANCE.  furb_cli links them too (the packs are shared with the GUI).
+RC = {'main': ('src-main/src', 'Nintendulator.rc'), 'iNES': ('src-mappers/src/iNES', 'iNES.rc'),
+      'FDS': ('src-mappers/src/FDS', 'FDS.rc'), 'NSF': ('src-mappers/src/NSF', 'NSF.rc'),
+      'VS': ('src-mappers/src/Vs', 'VS.rc')}
+RC2CPP = os.path.join(HERE, 'gui', 'rc2cpp.py')
+def resources(module):
+    d, rc = RC[module]
+    d = os.path.join(args.furb, d)
+    rc = os.path.join(d, next(f for f in os.listdir(d) if f.lower() == rc.lower()))
+    hdr = os.path.join(d, 'resource.h')
+    out = os.path.join(B, 'gen', 'res_%s.cpp' % module)
+    if not os.path.exists(out) or os.path.getmtime(out) < max(map(os.path.getmtime, (rc, hdr, RC2CPP))):
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        subprocess.check_call([sys.executable, RC2CPP, rc, hdr, out])
+    return out
+
 def obj_for(src, tag):
     rel = os.path.relpath(src, SRC).replace('/', '__').replace(' ', '_')
     return os.path.join(OBJ, tag, os.path.splitext(rel)[0] + '.o')
@@ -100,11 +118,15 @@ for s in main_srcs:
     jobs.append((s, obj_for(s, 'main'), CXX + MAIN_INC + EMU))
 jobs.append((os.path.join(HERE, 'furb_cli.cpp'), os.path.join(OBJ, 'main', 'furb_cli.o'), CXX + MAIN_INC))
 jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, 'main', 'compat.o'), CXX))
+jobs.append((os.path.join(COMPAT, 'host_reg.cpp'), os.path.join(OBJ, 'main', 'host_reg.o'), CXX))
+jobs.append((os.path.join(COMPAT, 'host_cli.cpp'), os.path.join(OBJ, 'main', 'host_cli.o'), CXX))
+jobs.append((resources('main'), os.path.join(OBJ, 'main', 'res_main.o'), CXX))
 for name, _, define in PACKS:
     flags = CXX + DLL_FLAGS + ['-D' + define]
     for s in pack_srcs[name]:
         jobs.append((s, obj_for(s, name), flags + EMU))
     jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, name, 'compat.o'), flags))
+    jobs.append((resources(name), os.path.join(OBJ, name, 'res_%s.o' % name), flags))
 
 hdr_time = max(os.path.getmtime(os.path.join(COMPAT, f)) for f in os.listdir(COMPAT))
 # (furb_cli.cpp also depends on the headers; handled by the same rule)
