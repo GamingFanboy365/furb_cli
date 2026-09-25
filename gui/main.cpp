@@ -40,6 +40,17 @@ static const char *css =
 
 int main(int argc, char **argv) {
 	// Furbtendulator reads its .cfg files with the wide C I/O functions: UTF-8, whatever the user's locale
+	for (int i = 1; i < argc; i++)
+		if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+			printf("usage: furb [ROM] [--data-dir DIR] [--config FILE] [--set Name=Value]...\n"
+			       "  DIR   data folder (savestates, battery saves, ...: DIR/Nintendulator);\n"
+			       "        default %s\n"
+			       "  FILE  settings, a regedit export of HKCU\\SOFTWARE\\Nintendulator;\n"
+			       "        default %s\n",
+			       xdg("XDG_DATA_HOME", ".local/share").append("/furbtendulator").c_str(),
+			       xdg("XDG_CONFIG_HOME", ".config").append("/furbtendulator/settings.reg").c_str());
+			return 0;
+		}
 	gtk_disable_setlocale();
 	setlocale(LC_ALL, "C.UTF-8");
 	gtk_init(&argc, &argv);
@@ -57,12 +68,6 @@ int main(int argc, char **argv) {
 			if (a == "--data-dir") data_dir = v;
 			else if (a == "--config") config = v;
 			else sets.push_back(v);
-		} else if (a == "-h" || a == "--help") {
-			printf("usage: furb [ROM] [--data-dir DIR] [--config FILE] [--set Name=Value]...\n"
-			       "  data (savestates, battery saves, ...): DIR/Nintendulator, default %s/Nintendulator\n"
-			       "  settings: FILE (a regedit export of HKCU\\SOFTWARE\\Nintendulator), default %s\n",
-			       xdg("XDG_DATA_HOME", ".local/share/furbtendulator").c_str(), config.c_str());
-			return 0;
 		} else rom = a;
 	}
 	if (data_dir.empty()) data_dir = xdg("XDG_DATA_HOME", ".local/share") + "/furbtendulator";

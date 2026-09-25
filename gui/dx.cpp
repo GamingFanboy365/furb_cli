@@ -53,7 +53,7 @@ static void clear_frame(void) {
 	frame_w = frame_h = 0;
 }
 void gui::set_fullscreen(bool on) {
-	later([on] {
+	sync([on] {	// before GFX's own ShowWindow / UpdateInterface that follow
 		Wnd *m = main_window();
 		if (!m || !m->top) return;
 		if (on) gtk_window_fullscreen(GTK_WINDOW(m->top));
@@ -67,6 +67,7 @@ struct Surface : IDirectDrawSurface7 {
 	bool primary;
 	std::vector<uint32_t> px;
 	Surface *back = NULL;
+	int refs = 1;			// COM reference count: GetAttachedSurface adds one, as DirectDraw does
 	Surface(int w_, int h_, bool p) : w(std::max(1, w_)), h(std::max(1, h_)), primary(p), px((size_t)w * h) {}
 	HRESULT Lock(RECT *, DDSURFACEDESC2 *d, DWORD, HANDLE) {
 		DWORD size = d->dwSize;
@@ -92,6 +93,7 @@ struct Surface : IDirectDrawSurface7 {
 	}
 	HRESULT GetAttachedSurface(DDSCAPS2 *, IDirectDrawSurface7 **out) {
 		*out = back;
+		if (back) back->refs++;
 		return back ? S_OK : DDERR_SURFACENOTATTACHED;
 	}
 	HRESULT GetSurfaceDesc(DDSURFACEDESC2 *d) {
@@ -112,8 +114,9 @@ struct Surface : IDirectDrawSurface7 {
 	HRESULT IsLost(void) { return S_OK; }
 	HRESULT Restore(void) { return S_OK; }
 	ULONG Release(void) {
+		if (--refs > 0) return refs;
 		if (primary) clear_frame();
-		if (back) back->primary = false, back->Release();
+		if (back) back->Release();
 		delete this;
 		return 0;
 	}

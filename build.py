@@ -130,7 +130,7 @@ if not args.no_gui:
     try:
         env = dict(os.environ)
         if args.m32:
-            env['PKG_CONFIG_PATH'] = '/usr/lib/i386-linux-gnu/pkgconfig'
+            env['PKG_CONFIG_LIBDIR'] = '/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig'	# i386 .pc files only
         gui_flags = subprocess.check_output(['pkg-config', '--cflags', 'gtk+-3.0', 'sdl2'], text=True, env=env).split()
         gui_libs = subprocess.check_output(['pkg-config', '--libs', 'gtk+-3.0', 'sdl2'], text=True, env=env).split()
     except (OSError, subprocess.CalledProcessError):

@@ -355,10 +355,20 @@ GtkWidget *menu_widget(Menu *m, Wnd *owner, bool bar) {
 		if (tab != std::wstring::npos) { accel = label.substr(tab + 1); label = label.substr(0, tab); }
 		it.w = gtk_menu_item_new();
 		g_object_set_data(G_OBJECT(it.w), "furb-owner", owner);
-		if (bar || it.sub) {
+		if (bar) {
 			GtkWidget *l = gtk_label_new_with_mnemonic(mnemonic(label, true).c_str());
 			gtk_container_add(GTK_CONTAINER(it.w), l);
 			if (it.sub) gtk_menu_item_set_submenu(GTK_MENU_ITEM(it.w), menu_widget(it.sub, owner, false));
+		} else if (it.sub) {		// a submenu inside a menu: lined up with the items
+			GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+			GtkWidget *pad = gtk_label_new("");
+			gtk_widget_set_size_request(pad, 12, -1);
+			GtkWidget *l = gtk_label_new_with_mnemonic(mnemonic(label, true).c_str());
+			gtk_label_set_xalign(GTK_LABEL(l), 0);
+			gtk_box_pack_start(GTK_BOX(box), pad, FALSE, FALSE, 0);
+			gtk_box_pack_start(GTK_BOX(box), l, TRUE, TRUE, 0);
+			gtk_container_add(GTK_CONTAINER(it.w), box);
+			gtk_menu_item_set_submenu(GTK_MENU_ITEM(it.w), menu_widget(it.sub, owner, false));
 		} else {
 			GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 			it.mark = gtk_label_new("");
@@ -1613,7 +1623,10 @@ LRESULT CALLBACK control_proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
 			GtkCellRenderer *r = gtk_cell_renderer_text_new();
 			if (col && (col->fmt & 3) == LVCFMT_CENTER) g_object_set(r, "xalign", 0.5, NULL);
 			GtkTreeViewColumn *tc = gtk_tree_view_column_new_with_attributes(col && col->pszText ? utf8(col->pszText).c_str() : "", r, "text", 1 + i, NULL);
-			if (col && (col->mask & LVCF_WIDTH)) gtk_tree_view_column_set_fixed_width(tc, col->cx * 7 / 5);
+			if (col && (col->mask & LVCF_WIDTH)) {	// pixels
+				gtk_tree_view_column_set_sizing(tc, GTK_TREE_VIEW_COLUMN_FIXED);
+				gtk_tree_view_column_set_fixed_width(tc, col->cx);
+			}
 			gtk_tree_view_column_set_resizable(tc, TRUE);
 			gtk_tree_view_append_column(GTK_TREE_VIEW(c->inner), tc);
 			return i;
