@@ -11,6 +11,8 @@ GUI (GTK 3 / SDL 2), and furb_cli, the headless program for scripted runs.
 --m32    32-bit x86 build (needs g++-multilib); the default is the native
          architecture (x86_64, arm64, ...).  Both produce identical output.
 --no-gui build furb_cli only (the GUI needs libgtk-3-dev and libsdl2-dev)
+--cxx, --cc, --sysroot   another compiler / system root (tools/build_bin32.sh
+         uses them for the glibc 2.29-compatible 32-bit build in bin32/)
 
 Produces BUILD/furb, BUILD/furb_cli and BUILD/Mappers/{iNES,FDS,NSF,VS}.so (the mapper packs,
 loaded at run time exactly like Furbtendulator loads Mappers\*.dll).
@@ -34,6 +36,9 @@ ap.add_argument('--build', default=os.path.join(HERE, 'build'))
 ap.add_argument('-j', type=int, default=os.cpu_count() or 4)
 ap.add_argument('--m32', action='store_true', help='32-bit x86 build (needs g++-multilib), as the original furb_cli')
 ap.add_argument('--no-gui', action='store_true', help='build furb_cli only, not the GTK program (furb)')
+ap.add_argument('--cxx', default='g++', help='C++ compiler (default g++)')
+ap.add_argument('--cc', default='gcc', help='C compiler, for the bundled math (default gcc)')
+ap.add_argument('--sysroot', help='build against this system root (tools/build_bin32.sh: an older glibc)')
 args = ap.parse_args()
 
 if not os.path.isdir(os.path.join(args.furb, 'src-main')):
@@ -84,7 +89,9 @@ pack_srcs = {name: vcx_sources(os.path.join(args.furb, 'src-mappers', 'msvc100',
 
 COMPAT = os.path.join(HERE, 'compat')
 ARCH = ['-m32', '-msse2', '-mfpmath=sse'] if args.m32 else []
-CXX = ['g++'] + ARCH + ['-O2', '-std=gnu++17', '-fpermissive', '-w', '-fno-operator-names',
+if args.sysroot:
+    ARCH += ['--sysroot=' + os.path.abspath(args.sysroot)]
+CXX = [args.cxx] + ARCH + ['-O2', '-std=gnu++17', '-fpermissive', '-w', '-fno-operator-names',
        '-fwrapv', '-fno-strict-aliasing', '-I' + COMPAT, '-DUNICODE', '-D_UNICODE',
        '-DWIN32', '-D_WINDOWS', '-DNDEBUG', '-include', 'stdexcept', '-include', 'cstring',
        '-include', 'locale', '-include', 'codecvt']	# MSVC's headers pull these in implicitly
@@ -186,12 +193,12 @@ if not os.path.exists(libm_obj) or os.path.getmtime(libm_obj) < max(
     for f in libm_srcs:
         o = os.path.join(OBJ, 'libm', os.path.basename(f)[:-2] + '.o')
         os.makedirs(os.path.dirname(o), exist_ok=True)
-        subprocess.check_call(['gcc'] + ARCH + ['-std=c99', '-D_XOPEN_SOURCE=700', '-O2', '-ffreestanding', '-fPIC',
+        subprocess.check_call([args.cc] + ARCH + ['-std=c99', '-D_XOPEN_SOURCE=700', '-O2', '-ffreestanding', '-fPIC',
             '-fexcess-precision=standard', '-frounding-math', '-ffp-contract=off', '-fno-strict-aliasing',
             '-U__FP_FAST_FMA', '-fno-builtin', '-fvisibility=hidden', '-include', os.path.join(LIBM, 'furb_musl.h'), '-I' + LIBM,
             '-c', f, '-o', o])
         mo.append(o)
-    subprocess.check_call(['gcc'] + ARCH + ['-r', '-nostdlib', '-o', libm_obj + '.tmp'] + mo)
+    subprocess.check_call([args.cc] + ARCH + ['-r', '-nostdlib', '-o', libm_obj + '.tmp'] + mo)
     cmd = ['objcopy', '--wildcard', '--keep-global-symbol=__x86.get_pc_thunk.*']	# i386 PIC thunks are COMDAT
     for fn in MATH_FUNCS:
         cmd += ['--redefine-sym', '%s=furb_%s' % (fn, fn), '--keep-global-symbol=furb_' + fn]
@@ -207,12 +214,12 @@ def link(what, cmd):
 
 # -z defs: the pack must be self-contained, like a DLL (fail at build, not dlopen)
 for name, _, _ in PACKS:
-    link('Mappers/%s.so' % name, ['g++'] + ARCH + ['-shared', '-static-libstdc++', '-static-libgcc',
+    link('Mappers/%s.so' % name, [args.cxx] + ARCH + ['-shared', '-static-libstdc++', '-static-libgcc',
          '-Wl,--exclude-libs,ALL', '-fvisibility=hidden', '-Wl,-z,defs',
          '-o', os.path.join(B, 'Mappers', name + '.so')] + objs_of(name) + [libm_obj, '-ldl'])
 # export exactly one symbol, furb_host_lookup, through which the packs reach
 # the executable's dialogs / cursor / file pickers (compat.cpp)
-link('furb_cli', ['g++'] + ARCH + ['-static-libstdc++', '-static-libgcc',
+link('furb_cli', [args.cxx] + ARCH + ['-static-libstdc++', '-static-libgcc',
      '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', exe] + objs_of('main') + [libm_obj, '-ldl'])
 
 # Furbtendulator's data files belong next to the program, as on Windows:
@@ -233,7 +240,7 @@ for data in (os.path.join(os.path.dirname(args.furb), 'bin'), os.path.join(args.
 if gui_flags:
     gui_exe = os.path.join(B, 'furb')
     emu = [o for o in objs_of('main') if os.path.basename(o) not in ('furb_cli.o', 'host_cli.o')]
-    link('furb', ['g++'] + ARCH + ['-static-libstdc++', '-static-libgcc',
+    link('furb', [args.cxx] + ARCH + ['-static-libstdc++', '-static-libgcc',
          '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', gui_exe] + emu + objs_of('gui') +
          [libm_obj, '-ldl', '-lpthread'] + gui_libs)
     print('built %s' % gui_exe)
