@@ -32,6 +32,7 @@ ap.add_argument('--furb', default=_bundled if os.path.isdir(_bundled) else
 ap.add_argument('--build', default=os.path.join(HERE, 'build'))
 ap.add_argument('-j', type=int, default=os.cpu_count() or 4)
 ap.add_argument('--m32', action='store_true', help='32-bit x86 build (needs g++-multilib), as the original furb_cli')
+ap.add_argument('--no-gui', action='store_true', help='build furb_cli only, not the GTK program (furb)')
 args = ap.parse_args()
 
 if not os.path.isdir(os.path.join(args.furb, 'src-main')):
@@ -121,6 +122,24 @@ jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, 'main', 'comp
 jobs.append((os.path.join(COMPAT, 'host_reg.cpp'), os.path.join(OBJ, 'main', 'host_reg.o'), CXX))
 jobs.append((os.path.join(COMPAT, 'host_cli.cpp'), os.path.join(OBJ, 'main', 'host_cli.o'), CXX))
 jobs.append((resources('main'), os.path.join(OBJ, 'main', 'res_main.o'), CXX))
+# The GUI program (gui/, furb): the same emulator objects with a GTK 3 / SDL 2
+# Win32 layer instead of furb_cli's front end and headless host.
+GUI = os.path.join(HERE, 'gui')
+gui_flags = gui_libs = None
+if not args.no_gui:
+    try:
+        env = dict(os.environ)
+        if args.m32:
+            env['PKG_CONFIG_PATH'] = '/usr/lib/i386-linux-gnu/pkgconfig'
+        gui_flags = subprocess.check_output(['pkg-config', '--cflags', 'gtk+-3.0', 'sdl2'], text=True, env=env).split()
+        gui_libs = subprocess.check_output(['pkg-config', '--libs', 'gtk+-3.0', 'sdl2'], text=True, env=env).split()
+    except (OSError, subprocess.CalledProcessError):
+        print('build.py: GTK 3 / SDL 2 development files not found (apt install libgtk-3-dev libsdl2-dev): building furb_cli only')
+if gui_flags:
+    for f in sorted(os.listdir(GUI)):
+        if f.endswith('.cpp'):
+            jobs.append((os.path.join(GUI, f), os.path.join(OBJ, 'gui', f[:-4] + '.o'), CXX + ['-UWIN32', '-U_WINDOWS'] + gui_flags + ['-I' + GUI]))
+
 for name, _, define in PACKS:
     flags = CXX + DLL_FLAGS + ['-D' + define]
     for s in pack_srcs[name]:
@@ -128,7 +147,7 @@ for name, _, define in PACKS:
     jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, name, 'compat.o'), flags))
     jobs.append((resources(name), os.path.join(OBJ, name, 'res_%s.o' % name), flags))
 
-hdr_time = max(os.path.getmtime(os.path.join(COMPAT, f)) for f in os.listdir(COMPAT))
+hdr_time = max([os.path.getmtime(os.path.join(COMPAT, f)) for f in os.listdir(COMPAT)] + [os.path.getmtime(os.path.join(HERE, 'gui', 'gui.h'))])
 # (furb_cli.cpp also depends on the headers; handled by the same rule)
 
 def compile_one(job):
@@ -210,4 +229,11 @@ for data in (os.path.join(os.path.dirname(args.furb), 'bin'), os.path.join(args.
                     if not os.path.exists(os.path.join(B, f, g)):
                         shutil.copy(os.path.join(src, g), os.path.join(B, f, g))
         break
+if gui_flags:
+    gui_exe = os.path.join(B, 'furb')
+    emu = [o for o in objs_of('main') if os.path.basename(o) not in ('furb_cli.o', 'host_cli.o')]
+    link('furb', ['g++'] + ARCH + ['-static-libstdc++', '-static-libgcc',
+         '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', gui_exe] + emu + objs_of('gui') +
+         [libm_obj, '-ldl', '-lpthread'] + gui_libs)
+    print('built %s' % gui_exe)
 print('built %s' % exe)

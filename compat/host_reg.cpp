@@ -26,6 +26,7 @@ void set_dword(const std::wstring &name, DWORD v) { reg_put(name, REG_DWORD, &v,
 void set_string(const std::wstring &name, const std::wstring &v) {
 	reg_put(name, REG_SZ, v.c_str(), (v.size() + 1) * sizeof(wchar_t));	// TCHAR is wchar_t here
 }
+void set_binary(const std::wstring &name, const void *data, size_t n) { reg_put(name, REG_BINARY, data, n); }
 bool get_dword(const std::wstring &name, DWORD &v) {
 	auto it = reg.find(lower(name));
 	if (it == reg.end() || it->second.data.size() < 4) return false;
