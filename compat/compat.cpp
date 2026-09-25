@@ -223,6 +223,27 @@ int furb_swscanf(const wchar_t *s, const wchar_t *fmt, ...) {
 	va_list ap; va_start(ap, fmt); int r = vswscanf(s, f.c_str(), ap); va_end(ap); return r;
 }
 
+// ---------------------------------------------------------------- operator new
+// Zero-filled, in the executable and in every pack.  Some constructors leave
+// members unset (the CPU and PPU objects NES::CreateMachine allocates are read
+// before they are written), so their start state was whatever the heap held
+// -- which depends on earlier allocations, down to the length of the paths on
+// the command line.  Zeroing makes every run start from the same state.
+#include <new>
+static void *zalloc(size_t n) {
+	void *p = calloc(n ? n : 1, 1);
+	if (!p) throw std::bad_alloc();
+	return p;
+}
+void *operator new(size_t n) { return zalloc(n); }
+void *operator new[](size_t n) { return zalloc(n); }
+void *operator new(size_t n, const std::nothrow_t &) noexcept { return calloc(n ? n : 1, 1); }
+void *operator new[](size_t n, const std::nothrow_t &) noexcept { return calloc(n ? n : 1, 1); }
+void operator delete(void *p) noexcept { free(p); }
+void operator delete[](void *p) noexcept { free(p); }
+void operator delete(void *p, size_t) noexcept { free(p); }
+void operator delete[](void *p, size_t) noexcept { free(p); }
+
 // ---------------------------------------------------------------- FindFirstFile
 struct FindState { std::vector<std::string> names; size_t next; };
 

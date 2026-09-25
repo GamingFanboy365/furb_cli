@@ -2,18 +2,22 @@
 """Build furb_cli: a headless Linux build of Furbtendulator (the reference
 VT/OneBus emulator) for comparing against PocketVT.
 
-    python3 tools/furb_cli/build.py [--furb DIR] [--build DIR] [-j N]
+    python3 build.py [--furb DIR] [--build DIR] [-j N] [--m32]
 
 --furb   Furbtendulator source root (default: ./Furbtendulator-src next to this
          script if present (standalone package), else the PocketVT tree's
          gitignored reference/Furbtendulator-main/src)
---build  output dir (default: tools/furb_cli/build, gitignored)
+--build  output dir (default: ./build)
+--m32    32-bit x86 build (needs g++-multilib); the default is the native
+         architecture (x86_64, arm64, ...).  Both produce identical output.
 
 Produces BUILD/furb_cli and BUILD/Mappers/{iNES,FDS,NSF,VS}.so (the mapper packs,
 loaded at run time exactly like Furbtendulator loads Mappers\*.dll).
+
 The source file lists come from Furbtendulator's own Visual Studio projects.
-Needs g++ with 32-bit multilib (apt install g++-multilib): the code assumes
-Win32's 32-bit long.  Incremental: only changed sources are recompiled.
+The code assumes Win32's 32-bit 'long'; prep_src.py rewrites it to 'int' in
+the build copy, so the native 64-bit build behaves exactly like the 32-bit one.
+Incremental: only changed sources are recompiled.
 """
 import argparse, os, re, shutil, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +31,7 @@ ap.add_argument('--furb', default=_bundled if os.path.isdir(_bundled) else
                 os.path.join(REPO, 'reference', 'Furbtendulator-main', 'src'))
 ap.add_argument('--build', default=os.path.join(HERE, 'build'))
 ap.add_argument('-j', type=int, default=os.cpu_count() or 4)
+ap.add_argument('--m32', action='store_true', help='32-bit x86 build (needs g++-multilib), as the original furb_cli')
 args = ap.parse_args()
 
 if not os.path.isdir(os.path.join(args.furb, 'src-main')):
@@ -76,12 +81,14 @@ pack_srcs = {name: vcx_sources(os.path.join(args.furb, 'src-mappers', 'msvc100',
              for name, proj, _ in PACKS}
 
 COMPAT = os.path.join(HERE, 'compat')
-CXX = ['g++', '-m32', '-msse2', '-mfpmath=sse', '-O2', '-std=gnu++17', '-fpermissive', '-w', '-fno-operator-names',
+ARCH = ['-m32', '-msse2', '-mfpmath=sse'] if args.m32 else []
+CXX = ['g++'] + ARCH + ['-O2', '-std=gnu++17', '-fpermissive', '-w', '-fno-operator-names',
        '-fwrapv', '-fno-strict-aliasing', '-I' + COMPAT, '-DUNICODE', '-D_UNICODE',
        '-DWIN32', '-D_WINDOWS', '-DNDEBUG', '-include', 'stdexcept', '-include', 'cstring',
        '-include', 'locale', '-include', 'codecvt']	# MSVC's headers pull these in implicitly
 # keep-inline: MSVC emits 'inline' members that other files call (PPU IncrementH)
 MAIN_INC = ['-I' + os.path.join(SRC, 'src-main', 'src'), '-fkeep-inline-functions']
+EMU = ['-include', 'furb_math.h']	# libm calls -> the bundled musl subset (compat/furb_math.h)
 DLL_FLAGS = ['-fPIC', '-fvisibility=hidden', '-D_USRDLL', '-DFURB_PACK']
 
 def obj_for(src, tag):
@@ -90,13 +97,13 @@ def obj_for(src, tag):
 
 jobs = []
 for s in main_srcs:
-    jobs.append((s, obj_for(s, 'main'), CXX + MAIN_INC))
+    jobs.append((s, obj_for(s, 'main'), CXX + MAIN_INC + EMU))
 jobs.append((os.path.join(HERE, 'furb_cli.cpp'), os.path.join(OBJ, 'main', 'furb_cli.o'), CXX + MAIN_INC))
 jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, 'main', 'compat.o'), CXX))
 for name, _, define in PACKS:
     flags = CXX + DLL_FLAGS + ['-D' + define]
     for s in pack_srcs[name]:
-        jobs.append((s, obj_for(s, name), flags))
+        jobs.append((s, obj_for(s, name), flags + EMU))
     jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, name, 'compat.o'), flags))
 
 hdr_time = max(os.path.getmtime(os.path.join(COMPAT, f)) for f in os.listdir(COMPAT))
@@ -121,6 +128,33 @@ if errors:
     sys.exit('build.py: %d file(s) failed to compile' % len(errors))
 
 objs_of = lambda tag: [j[1] for j in jobs if os.sep + tag + os.sep in j[1]]
+
+# The musl math subset (compat/libm): compiled as C without FMA contraction,
+# merged into one object whose only global symbols are furb_sin, furb_pow, ...
+# so it cannot interpose on the system libm.  Linked into the executable and
+# every pack (each pack is self-contained, like a DLL).
+LIBM = os.path.join(COMPAT, 'libm')
+MATH_FUNCS = ['sin', 'cos', 'tan', 'exp', 'log', 'log2', 'log10', 'pow', 'sinf', 'cosf', 'powf']
+libm_obj = os.path.join(OBJ, 'furb_libm.o')
+libm_srcs = sorted(os.path.join(LIBM, f) for f in os.listdir(LIBM) if f.endswith('.c'))
+if not os.path.exists(libm_obj) or os.path.getmtime(libm_obj) < max(
+        os.path.getmtime(os.path.join(LIBM, f)) for f in os.listdir(LIBM)):
+    print('compiling the musl math subset ...')
+    mo = []
+    for f in libm_srcs:
+        o = os.path.join(OBJ, 'libm', os.path.basename(f)[:-2] + '.o')
+        os.makedirs(os.path.dirname(o), exist_ok=True)
+        subprocess.check_call(['gcc'] + ARCH + ['-std=c99', '-D_XOPEN_SOURCE=700', '-O2', '-ffreestanding', '-fPIC',
+            '-fexcess-precision=standard', '-frounding-math', '-ffp-contract=off', '-fno-strict-aliasing',
+            '-U__FP_FAST_FMA', '-fno-builtin', '-fvisibility=hidden', '-include', os.path.join(LIBM, 'furb_musl.h'), '-I' + LIBM,
+            '-c', f, '-o', o])
+        mo.append(o)
+    subprocess.check_call(['gcc'] + ARCH + ['-r', '-nostdlib', '-o', libm_obj + '.tmp'] + mo)
+    cmd = ['objcopy', '--wildcard', '--keep-global-symbol=__x86.get_pc_thunk.*']	# i386 PIC thunks are COMDAT
+    for fn in MATH_FUNCS:
+        cmd += ['--redefine-sym', '%s=furb_%s' % (fn, fn), '--keep-global-symbol=furb_' + fn]
+    subprocess.check_call(cmd + [libm_obj + '.tmp', libm_obj])
+    os.remove(libm_obj + '.tmp')
 exe = os.path.join(B, 'furb_cli')
 def link(what, cmd):
     print('linking %s ...' % what)
@@ -131,13 +165,13 @@ def link(what, cmd):
 
 # -z defs: the pack must be self-contained, like a DLL (fail at build, not dlopen)
 for name, _, _ in PACKS:
-    link('Mappers/%s.so' % name, ['g++', '-m32', '-shared', '-static-libstdc++', '-static-libgcc',
+    link('Mappers/%s.so' % name, ['g++'] + ARCH + ['-shared', '-static-libstdc++', '-static-libgcc',
          '-Wl,--exclude-libs,ALL', '-fvisibility=hidden', '-Wl,-z,defs',
-         '-o', os.path.join(B, 'Mappers', name + '.so')] + objs_of(name) + ['-ldl'])
+         '-o', os.path.join(B, 'Mappers', name + '.so')] + objs_of(name) + [libm_obj, '-ldl'])
 # export exactly one symbol, furb_host_lookup, through which the packs reach
 # the executable's dialogs / cursor / file pickers (compat.cpp)
-link('furb_cli', ['g++', '-m32', '-static-libstdc++', '-static-libgcc',
-     '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', exe] + objs_of('main') + ['-ldl'])
+link('furb_cli', ['g++'] + ARCH + ['-static-libstdc++', '-static-libgcc',
+     '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', exe] + objs_of('main') + [libm_obj, '-ldl'])
 
 # Furbtendulator's data files belong next to the program, as on Windows:
 # cheats.cfg (cheat database), dip.cfg (DIP switch definitions), fastload.cfg,

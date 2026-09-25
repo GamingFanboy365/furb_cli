@@ -1,5 +1,5 @@
 // Minimal Win32 / DirectX shim so Furbtendulator's emulation core builds as a
-// headless 32-bit Linux program (furb_cli).  Only what the sources reference.
+// headless Linux program (furb_cli), 32- or 64-bit.  Only what the sources reference.
 // Types and macros are real; every GUI / DirectX / registry / dialog call is a
 // no-op returning "zero" (0, FALSE, NULL, or a failing HRESULT), which the
 // emulator treats as "feature unavailable".  The emulation path never needs
@@ -50,8 +50,13 @@
 typedef int BOOL;
 typedef unsigned char BYTE, UCHAR, *LPBYTE, *PBYTE;
 typedef unsigned short WORD, USHORT, *LPWORD;
-typedef unsigned long DWORD, ULONG, *LPDWORD, *PDWORD;   // 32-bit: build with -m32
-typedef long LONG, *LPLONG, HRESULT;
+// Win32 sizes on both i386 and LP64: DWORD/LONG are 32 bits (prep_src.py turns
+// the sources' own 'long' into 'int' to match), the *_PTR types and
+// WPARAM/LPARAM are pointer-sized.  HRESULT stays a distinct type (long) so a
+// stubbed call can convert to E_FAIL for it; its constants are 32-bit negative.
+typedef uint32_t DWORD, ULONG, *LPDWORD, *PDWORD;
+typedef int32_t LONG, *LPLONG;
+typedef long HRESULT;
 typedef int INT;
 typedef unsigned int UINT;
 typedef short SHORT;
@@ -63,8 +68,9 @@ typedef float FLOAT;
 #define __int64 long long
 typedef long long LONGLONG;
 typedef unsigned long long ULONGLONG, DWORD64, UINT64;
-typedef int INT_PTR, LONG_PTR;
-typedef unsigned int UINT_PTR, ULONG_PTR, DWORD_PTR, SIZE_T;
+typedef intptr_t INT_PTR, LONG_PTR;
+typedef uintptr_t UINT_PTR, ULONG_PTR, DWORD_PTR;
+typedef size_t SIZE_T;
 typedef UINT_PTR WPARAM;
 typedef LONG_PTR LPARAM, LRESULT;
 typedef void VOID, *LPVOID, *PVOID;
@@ -109,13 +115,13 @@ typedef void *PSID;
 
 #define S_OK ((HRESULT)0)
 #define S_FALSE ((HRESULT)1)
-#define E_FAIL ((HRESULT)0x80004005L)
-#define E_NOTIMPL ((HRESULT)0x80004001L)
+#define E_FAIL ((HRESULT)(int32_t)0x80004005)
+#define E_NOTIMPL ((HRESULT)(int32_t)0x80004001)
 #define DD_OK S_OK
 #define DS_OK S_OK
 #define DI_OK S_OK
-#define SUCCEEDED(hr) (((HRESULT)(hr)) >= 0)
-#define FAILED(hr) (((HRESULT)(hr)) < 0)
+#define SUCCEEDED(hr) (((int32_t)(hr)) >= 0)
+#define FAILED(hr) (((int32_t)(hr)) < 0)
 #define ERROR_SUCCESS 0L
 
 #define LOWORD(l) ((WORD)((DWORD_PTR)(l) & 0xffff))
@@ -150,7 +156,7 @@ struct WinZero {
 	operator int() const { return 0; }
 	template <class T> operator T() const { return T(); }
 };
-template <> inline WinZero::operator long() const { return E_FAIL; }
+template <> inline WinZero::operator HRESULT() const { return E_FAIL; }
 template <class T> inline bool operator==(T *a, WinZero) { return a == nullptr; }
 template <class T> inline bool operator==(WinZero, T *a) { return a == nullptr; }
 template <class T> inline bool operator!=(T *a, WinZero) { return a != nullptr; }
@@ -597,10 +603,10 @@ void furb_splitpath(const wchar_t *path, wchar_t *drive, wchar_t *dir, wchar_t *
 #define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 #define SelectFont(hdc, f) ((HFONT)SelectObject((hdc), (HGDIOBJ)(f)))
-#define E_NOINTERFACE ((HRESULT)0x80004002L)
-#define E_OUTOFMEMORY ((HRESULT)0x8007000EL)
-#define E_INVALIDARG ((HRESULT)0x80070057L)
-#define REGDB_E_CLASSNOTREG ((HRESULT)0x80040154L)
+#define E_NOINTERFACE ((HRESULT)(int32_t)0x80004002)
+#define E_OUTOFMEMORY ((HRESULT)(int32_t)0x8007000E)
+#define E_INVALIDARG ((HRESULT)(int32_t)0x80070057)
+#define REGDB_E_CLASSNOTREG ((HRESULT)(int32_t)0x80040154)
 enum {
 	BITSPIXEL = 12, BLACKNESS = 0x42, WHITENESS = 0xFF0062, BS_DEFPUSHBUTTON = 1, CBS_DROPDOWNLIST = 3, CBS_HASSTRINGS = 0x200,
 	CLIP_DEFAULT_PRECIS = 0, DEFAULT_PITCH = 0, DEFAULT_QUALITY = 0, FW_DONTCARE = 0, OUT_DEFAULT_PRECIS = 0,
