@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Build furb_cli: a headless Linux build of Furbtendulator (the reference
-VT/OneBus emulator) for comparing against PocketVT.
+"""Build Furbtendulator (the reference VT/OneBus emulator) for Linux: furb, the
+GUI (GTK 3 / SDL 2), and furb_cli, the headless program for scripted runs.
 
     python3 build.py [--furb DIR] [--build DIR] [-j N] [--m32]
 
@@ -10,8 +10,9 @@ VT/OneBus emulator) for comparing against PocketVT.
 --build  output dir (default: ./build)
 --m32    32-bit x86 build (needs g++-multilib); the default is the native
          architecture (x86_64, arm64, ...).  Both produce identical output.
+--no-gui build furb_cli only (the GUI needs libgtk-3-dev and libsdl2-dev)
 
-Produces BUILD/furb_cli and BUILD/Mappers/{iNES,FDS,NSF,VS}.so (the mapper packs,
+Produces BUILD/furb, BUILD/furb_cli and BUILD/Mappers/{iNES,FDS,NSF,VS}.so (the mapper packs,
 loaded at run time exactly like Furbtendulator loads Mappers\*.dll).
 
 The source file lists come from Furbtendulator's own Visual Studio projects.
