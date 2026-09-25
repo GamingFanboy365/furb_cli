@@ -45,6 +45,9 @@ FIXUPS = [
     ('src-main/src/plugThruDevice_SuperMagicCard.cpp', r'union \{(\s*uint8_t k1 \[256\]\[1024\];)', 'union SMC_CHRRAM {\\1'),
     ('src-main/src/plugThruDevice_SuperMagicCard_transfer.cpp', r'extern union \{(\s*uint8_t k8 \[64\]\[2\]\[4096\];)', 'extern union SMC_PRGRAM {\\1'),
     ('src-main/src/plugThruDevice_SuperMagicCard_transfer.cpp', r'extern union \{(\s*uint8_t k1 \[256\]\[1024\];)', 'extern union SMC_CHRRAM {\\1'),
+    # not MSVC-only, but nondeterministic: buffer[0] of the first audio chunk
+    # is never written, so the first sample was whatever the heap held
+    ('src-main/src/Sound.cpp', r'buffer = new short\[buflen\];', 'buffer = new short[buflen]();'),
 ]
 for rel, pat, rep in FIXUPS:
     p = os.path.join(dst, rel)
@@ -53,6 +56,19 @@ for rel, pat, rep in FIXUPS:
     if n != 1:
         sys.exit('prep_src: fixup did not apply to %s: %s' % (rel, pat))
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(new)
+
+# Win32 is ILP32/LLP64: 'long' is 32 bits there, and the sources rely on it
+# (pixel writes through 'unsigned long *', CRC tables, register structs,
+# savestate fields).  On LP64 Linux it is 64 bits, so every 'long' that is
+# not 'long long' / 'long double' becomes 'int' (same size and meaning on
+# i386, so the 32-bit build is unchanged).  Comments and string/character
+# literals are left alone.
+long_re = re.compile(r'(//[^\n]*|/\*.*?\*/)|("(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\')'
+                     r'|(?<![\w])(?<!long )(?:(unsigned|signed)\s+)?long(?:\s+int\b)?(?!\s+(?:long|double)\b)(?![\w])', re.S)
+def fix_long(m):
+    if m.group(1) or m.group(2):
+        return m.group(0)
+    return (m.group(3) + ' int') if m.group(3) else 'int'
 
 inc_re = re.compile(r'(#\s*include\s*")([^"]+)(")')
 for d, _, files in os.walk(dst):
@@ -67,5 +83,6 @@ for d, _, files in os.walk(dst):
             real = resolve(d, inc)
             return m.group(1) + (real or inc) + m.group(3)
         new = inc_re.sub(fix, text)
+        new = long_re.sub(fix_long, new)
         if new != text:
             open(p, 'wb').write(new.encode('utf-8', errors='surrogateescape'))

@@ -18,6 +18,7 @@ bool save_config(const std::string &path);	// writes a .reg file (REGEDIT4)
 void set_dword(const std::wstring &name, DWORD v);
 void set_string(const std::wstring &name, const std::wstring &v);
 bool get_dword(const std::wstring &name, DWORD &v);
+void set_binary(const std::wstring &name, const void *data, size_t n);
 
 // ---- headless dialogs ----
 typedef std::function<void(HWND)> DialogScript;

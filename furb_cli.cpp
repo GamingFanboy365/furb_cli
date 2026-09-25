@@ -380,8 +380,11 @@ static void dump_frame(const std::string &prefix, int frame, const std::vector<u
 	fclose(f);
 	snprintf(name, sizeof name, "%s_f%04d.txt", prefix.c_str(), frame);
 	f = fopen(name, "w");
-	fprintf(f, "frame %d  size %dx%d%s  offset %d,%d  console %d  mapper %d.%d\n", frame, w, h, hires() ? " (VT369 hi-res)" : "",
-		GFX::OFFSETX, GFX::OFFSETY, (int)RI.ConsoleType, (int)RI.INES_MapperNum, (int)RI.INES2_SubMapper);
+	fprintf(f, "frame %d  size %dx%d%s  offset %d,%d  console %d", frame, w, h, hires() ? " (VT369 hi-res)" : "",
+		GFX::OFFSETX, GFX::OFFSETY, (int)RI.ConsoleType);
+	if (RI.ROMType == ROM_INES || RI.ROMType == ROM_UNIF)	// (not set for FDS/NSF)
+		fprintf(f, "  mapper %d.%d", (int)RI.INES_MapperNum, (int)RI.INES2_SubMapper);
+	fprintf(f, "\n");
 	fprintf(f, "reg2000 ($2000-$20FF):\n");
 	for (int i = 0; i < 0x100; i++) fprintf(f, "%02X%s", reg2000[i], (i & 15) == 15 ? "\n" : " ");
 	fprintf(f, "reg4100 ($4100-$41FF):\n");

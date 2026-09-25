@@ -1,36 +1,33 @@
 #pragma once
 #include <windows.h>
 #include <mmsystem.h>
-#include <vector>
 typedef struct { DWORD dwSize, dwFlags, dwBufferBytes, dwReserved; LPWAVEFORMATEX lpwfxFormat; GUID guid3DAlgorithm; } DSBUFFERDESC;
 enum { DSBCAPS_PRIMARYBUFFER = 1, DSBCAPS_GLOBALFOCUS = 0x8000, DSBCAPS_GETCURRENTPOSITION2 = 0x10000,
 	DSBCAPS_CTRLVOLUME = 0x80, DSBCAPS_LOCSOFTWARE = 8, DSSCL_PRIORITY = 2, DSSCL_NORMAL = 1,
 	DSBPLAY_LOOPING = 1, DSBSTATUS_PLAYING = 1, DSBLOCK_ENTIREBUFFER = 2, DSBLOCK_FROMWRITECURSOR = 1 };
-#define DSERR_BUFFERLOST ((HRESULT)0x88780096L)
+#define DSERR_BUFFERLOST ((HRESULT)(int32_t)0x88780096)
 
-// A capture-only DirectSound (compat.cpp).  DirectSoundCreate hands one out
-// only when furb_cli is recording audio (--wav/--avi); Sound.cpp then mixes
-// exactly as on Windows, and every frame's Lock/Unlock delivers the samples
-// the speakers would have played to the WAV/AVI writer.  The play cursor
-// always reads "far ahead", so Sound::Run never waits.
-struct FurbDSBuffer : WinCOM {
-	bool primary = false, clearing = false;
-	std::vector<unsigned char> mem;
-	HRESULT SetFormat(const WAVEFORMATEX *) { return S_OK; }
-	HRESULT Play(DWORD, DWORD, DWORD) { return S_OK; }
-	HRESULT Stop(void) { return S_OK; }
-	HRESULT GetCurrentPosition(DWORD *play, DWORD *write);
-	HRESULT Lock(DWORD offset, DWORD bytes, void **ptr1, DWORD *len1, void **ptr2, DWORD *len2, DWORD flags);
-	HRESULT Unlock(void *ptr1, DWORD len1, void *ptr2, DWORD len2);
-	HRESULT GetStatus(DWORD *s) { *s = DSBSTATUS_PLAYING; return S_OK; }
-	ULONG Release(void) { delete this; return 0; }
+// DirectSound as Sound.cpp uses it.  furb_cli's is capture-only (host_cli.cpp:
+// handed out only when recording --wav/--avi, the play cursor always "far
+// ahead" so Sound::Run never waits); the GUI's plays through SDL (gui/dx.cpp).
+struct IDirectSoundBuffer {
+	virtual HRESULT SetFormat(const WAVEFORMATEX *f) = 0;
+	virtual HRESULT Play(DWORD r1, DWORD r2, DWORD flags) = 0;
+	virtual HRESULT Stop(void) = 0;
+	virtual HRESULT GetCurrentPosition(DWORD *play, DWORD *write) = 0;
+	virtual HRESULT Lock(DWORD offset, DWORD bytes, void **ptr1, DWORD *len1, void **ptr2, DWORD *len2, DWORD flags) = 0;
+	virtual HRESULT Unlock(void *ptr1, DWORD len1, void *ptr2, DWORD len2) = 0;
+	virtual HRESULT GetStatus(DWORD *s) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectSoundBuffer() {}
 };
-struct FurbDS : WinCOM {
-	HRESULT SetCooperativeLevel(HWND, DWORD) { return S_OK; }
-	HRESULT CreateSoundBuffer(const DSBUFFERDESC *desc, FurbDSBuffer **out, void *);
-	ULONG Release(void) { delete this; return 0; }
+struct IDirectSound {
+	virtual HRESULT SetCooperativeLevel(HWND h, DWORD level) = 0;
+	virtual HRESULT CreateSoundBuffer(const DSBUFFERDESC *desc, IDirectSoundBuffer **out, IUnknown *outer) = 0;
+	virtual ULONG Release(void) = 0;
+	virtual ~IDirectSound() {}
 };
-typedef FurbDS IDirectSound, *LPDIRECTSOUND, *LPDIRECTSOUND8;
-typedef FurbDSBuffer IDirectSoundBuffer, *LPDIRECTSOUNDBUFFER, *LPDIRECTSOUNDBUFFER8;
+typedef IDirectSound *LPDIRECTSOUND, *LPDIRECTSOUND8;
+typedef IDirectSoundBuffer *LPDIRECTSOUNDBUFFER, *LPDIRECTSOUNDBUFFER8;
 HRESULT DirectSoundCreate(const GUID *, LPDIRECTSOUND *out, void *);
 #define DirectSoundCreate8 DirectSoundCreate
