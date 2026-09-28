@@ -137,10 +137,16 @@ gui_flags = gui_libs = None
 if not args.no_gui:
     try:
         env = dict(os.environ)
-        if args.m32:
-            env['PKG_CONFIG_LIBDIR'] = '/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig'	# i386 .pc files only
+        triplet = 'i386-linux-gnu' if args.m32 else 'x86_64-linux-gnu'
+        root = os.path.abspath(args.sysroot) if args.sysroot else ''
+        if args.m32 or root:	# only the target's .pc files
+            env['PKG_CONFIG_LIBDIR'] = '%s/usr/lib/%s/pkgconfig:%s/usr/share/pkgconfig' % (root, triplet, root)
+        if root:
+            env['PKG_CONFIG_SYSROOT_DIR'] = root
         gui_flags = subprocess.check_output(['pkg-config', '--cflags', 'gtk+-3.0', 'sdl2'], text=True, env=env).split()
         gui_libs = subprocess.check_output(['pkg-config', '--libs', 'gtk+-3.0', 'sdl2'], text=True, env=env).split()
+        if root:	# GTK's own dependencies, found inside the sysroot
+            gui_libs += ['-Wl,-rpath-link=%s/usr/lib/%s:%s/lib/%s' % (root, triplet, root, triplet)]
     except (OSError, subprocess.CalledProcessError):
         print('build.py: GTK 3 / SDL 2 development files not found (apt install libgtk-3-dev libsdl2-dev): building furb_cli only')
 if gui_flags:

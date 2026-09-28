@@ -31,14 +31,24 @@ bin/furb game.nes                             # the GUI
 bin/furb_cli game.nes --frames 900 --dump 300,899 --out shots/game
 ```
 
-On an older system use `bin32/`: a 32-bit x86 `furb_cli` (no GUI) that
-needs only glibc 2.29 (Ubuntu 19.04, Debian 11 or equivalent) and the 32-bit
-C library (`sudo apt install libc6-i386`, or `libc6:i386` after
-`dpkg --add-architecture i386`).  It is built from the same sources against
-Ubuntu 20.04's compiler and C library, and gives the same output as `bin/`:
-the two agree on all 311 comparison ROMs, and its self-test passes on glibc
-2.29 itself.  On another architecture, build from source (below; about two
-minutes).  Keep `bin/` (or `bin32/`) together: `bin/Mappers/*.so` are the iNES, FDS, NSF
+On an older system use `bin32/`: 32-bit x86 builds of both programs, `furb`
+and `furb_cli`, that need only glibc 2.29 (Ubuntu 19.04, Debian 11 or
+equivalent).  They run on 64-bit systems through the 32-bit libraries:
+
+```
+sudo dpkg --add-architecture i386 && sudo apt update
+sudo apt install libc6:i386                                # furb_cli
+sudo apt install libgtk-3-0:i386 libsdl2-2.0-0:i386        # furb as well
+bin32/furb game.nes
+```
+
+They are built from the same sources against Ubuntu 20.04's compiler, C
+library, GTK 3 and SDL 2 (the newest glibc symbol they use is 2.27; `furb`
+wants GTK 3.22 or newer at run time).  `bin32/furb_cli` gives the same output
+as `bin/furb_cli` on all 311 comparison ROMs, and its self-test passes on
+glibc 2.29 itself; `bin32/furb` passes `tools/gui_smoke.py` on Ubuntu 19.04's
+own libraries (glibc 2.29, GTK 3.24.8, SDL 2.0.9) and on Ubuntu 20.04's.  On
+another architecture, build from source (below; about two minutes).  Keep `bin/` (or `bin32/`) together: `bin/Mappers/*.so` are the iNES, FDS, NSF
 and VS mapper packs, loaded at startup the way the Windows build loads
 `Mappers\*.dll`, and the `.cfg` files, `BIOS/` and `samples/` sit next to the
 programs as they do next to `Furbtendulator.exe`.
@@ -270,9 +280,10 @@ python3 tools/gui_smoke.py  # checks furb (needs xvfb xdotool openbox)
 `--no-gui` builds `furb_cli` only (no GTK/SDL needed); `--m32` builds for
 32-bit x86 (`g++-multilib`, and i386 GTK/SDL development packages for the
 GUI).  `tools/build_bin32.sh` rebuilds `bin32/`: it downloads Ubuntu 20.04's
-GCC 9 and glibc packages with apt-get into `build32/` (nothing is installed),
-builds against them with `--sysroot`, and refuses the result if it needs a
-glibc newer than 2.29.  The first build takes a few minutes and later builds are incremental.
+GCC 9, glibc and i386 GTK 3 / SDL 2 development packages with apt-get into
+`build32/` (about 230 MB; nothing is installed), builds both programs against
+them with `--sysroot`, and refuses the result if it needs a glibc newer than
+2.29.  The first build takes a few minutes and later builds are incremental.
 The source file lists come from Furbtendulator's own Visual Studio project
 files, so a newer Furbtendulator drops in: point `--furb` at its `src`
 directory.  `build.py` never modifies the source tree; it copies it to
@@ -283,7 +294,7 @@ directory.  `build.py` never modifies the source tree; it copies it to
 | Path | Contents |
 |------|----------|
 | `bin/` | the prebuilt programs (`furb`, `furb_cli`), mapper packs and data files (x86_64, built on Ubuntu 24.04, GCC 13) |
-| `bin32/` | a standalone 32-bit `furb_cli` with its mapper packs and data files, for older systems (i386, glibc 2.29+, built against Ubuntu 20.04's GCC 9 and glibc) |
+| `bin32/` | standalone 32-bit `furb` and `furb_cli` with their mapper packs and data files, for older systems (i386, glibc 2.29+, built against Ubuntu 20.04's GCC 9, glibc, GTK 3 and SDL 2) |
 | `Furbtendulator-src/` | Furbtendulator's complete source as released (minus Visual Studio's IntelliSense cache), plus `bin-data/` (the release's `.cfg` files and empty `BIOS/`, `samples/` folders) |
 | `furb_cli.cpp` | the command-line front end (replaces `WinMain`) |
 | `compat/` | the Win32/DirectX compatibility layer, `furb_cli`'s host, and the bundled musl math (`compat/libm`) |
