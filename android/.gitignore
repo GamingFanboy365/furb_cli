@@ -1,0 +1,6 @@
+native-out/
+.gradle/
+build/
+app/build/
+local.properties
+furb-release.keystore

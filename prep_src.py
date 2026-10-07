@@ -45,6 +45,33 @@ FIXUPS = [
     ('src-main/src/plugThruDevice_SuperMagicCard.cpp', r'union \{(\s*uint8_t k1 \[256\]\[1024\];)', 'union SMC_CHRRAM {\\1'),
     ('src-main/src/plugThruDevice_SuperMagicCard_transfer.cpp', r'extern union \{(\s*uint8_t k8 \[64\]\[2\]\[4096\];)', 'extern union SMC_PRGRAM {\\1'),
     ('src-main/src/plugThruDevice_SuperMagicCard_transfer.cpp', r'extern union \{(\s*uint8_t k1 \[256\]\[1024\];)', 'extern union SMC_CHRRAM {\\1'),
+    # SSE intrinsics (x86 only): the flush-to-zero / denormals-are-zero
+    # switch, done for every architecture by compat/furb_math.h
+    ('src-main/src/Filter.cpp', r'#include <xmmintrin\.h>\n#include <pmmintrin\.h>\n', ''),
+    ('src-main/src/Filter.cpp', r'_MM_SET_FLUSH_ZERO_MODE\(_MM_FLUSH_ZERO_ON\);\s*_MM_SET_DENORMALS_ZERO_MODE\(_MM_DENORMALS_ZERO_ON\);',
+     'furb_flush_denormals();'),
+    # what g++ -fpermissive lets through and clang (Android's compiler) does not:
+    # string literals stored in non-const pointers of the mapper description
+    ('src-main/src/MapperInterface.h', r'void \*\t\tMapperId;\n\tTCHAR \*\t\tDescription;', 'const void *\tMapperId;\n\tconst TCHAR *\tDescription;'),
+    ('src-mappers/src/interface.h', r'void \*\t\tMapperId;\n\tTCHAR \*\t\tDescription;', 'const void *\tMapperId;\n\tconst TCHAR *\tDescription;'),
+    # pointers cast to a smaller integer (the same truncation g++ does)
+    ('src-mappers/src/Dll/d_iNES.cpp', r'\(unsigned int\)ROM->Filename', '(unsigned int)(uintptr_t)ROM->Filename'),
+    ('src-mappers/src/Dll/d_VS.cpp', r'\(unsigned int\)ROM->Filename', '(unsigned int)(uintptr_t)ROM->Filename'),
+    ('src-mappers/src/Dll/d_NSF.cpp', r'\(unsigned int\)ROM->Filename', '(unsigned int)(uintptr_t)ROM->Filename'),
+    ('src-mappers/src/Dll/d_FDS.cpp', r'\(unsigned int\)ROM->Filename', '(unsigned int)(uintptr_t)ROM->Filename'),
+    ('src-main/src/GFX.cpp', r'\(int\) PrimarySurf\)', '(int)(intptr_t) PrimarySurf)'),
+    ('src-main/src/Controllers.cpp', r'int DevNum = \(int\)pvRef;', 'int DevNum = (int)(intptr_t)pvRef;'),
+    ('src-mappers/src/iNES/MMC1-based/mapper001.cpp', r'TCHAR\*\* Description =', 'const TCHAR** Description ='),
+    # a UTF-8 '®' in a char table: g++ keeps its last byte (0xAE, the
+    # Windows-1252 code MSVC saw), clang refuses the multi-byte literal
+    ('src-main/src/NES.cpp', "'®'", "'\\\\xAE'"),
+    # an 'inline' member other files call: g++ keeps a copy for them
+    # (-fkeep-inline-functions), clang has no such option
+    ('src-main/src/PPU.h', r'inline void IncrementH \(\);', 'void IncrementH ();'),
+    ('src-main/src/PPU.cpp', r'inline void PPU_RP2C02::IncrementH \(\)', 'void PPU_RP2C02::IncrementH ()'),
+    # chunk IDs: a signed shift into the sign bit is not a constant expression
+    ('src-main/src/NES.cpp', r'\(\(\(a\) <<  8\) & 0x00FF0000\) \| \\\n\t\t\(\(\(a\) << 24\)',
+     '(((unsigned)(a) <<  8) & 0x00FF0000) | \\\\\\n\\t\\t(((unsigned)(a) << 24)'),
     # not MSVC-only, but nondeterministic: buffer[0] of the first audio chunk
     # is never written, so the first sample was whatever the heap held
     ('src-main/src/Sound.cpp', r'buffer = new short\[buflen\];', 'buffer = new short[buflen]();'),

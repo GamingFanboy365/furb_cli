@@ -73,11 +73,13 @@ static void close_dialog(FakeDlg *d) {
 static int cur_x = 255, cur_y = 255, client_w = 256, client_h = 240;
 static float mic = 0;
 static AudioSink audio_sink;
+static MessageSink message_sink;
 void set_cursor(int x, int y) { cur_x = x; cur_y = y; }
 void get_cursor(int &x, int &y) { x = cur_x; y = cur_y; }
 void set_client(int w, int h) { client_w = w; client_h = h; }
 void set_mic(float level) { mic = level; }
 void set_audio_sink(AudioSink s) { audio_sink = s; }
+void set_message_sink(MessageSink s) { message_sink = s; }
 } // namespace FurbHost
 
 using namespace FurbHost;
@@ -87,6 +89,8 @@ using namespace FurbHost;
 int MessageBox(HWND, LPCTSTR text, LPCTSTR caption, UINT type) {
 	// the missing display/sound/input devices are expected: only say so with --verbose
 	bool expected = text && (wcsstr(text, L"DirectDraw") || wcsstr(text, L"DirectInput") || wcsstr(text, L"DirectSound"));
+	if (message_sink && !expected)
+		return message_sink(text ? text : L"", caption ? caption : L"", type);
 	if (!quiet && (verbose || !expected))
 		fprintf(stderr, "furb_cli: [%s] %s\n", furb_narrow(caption ? caption : L"").c_str(), furb_narrow(text ? text : L"").c_str());
 	UINT kind = type & 0xF;

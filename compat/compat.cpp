@@ -275,9 +275,26 @@ HANDLE FindFirstFile(const wchar_t *pattern, WIN32_FIND_DATA *d) {
 BOOL FindNextFile(HANDLE h, WIN32_FIND_DATA *d) { return fill((FindState *)h, d); }
 BOOL FindClose(HANDLE h) { delete (FindState *)h; return TRUE; }
 
+#ifndef FURB_PACK
+extern "C" void *furb_host_lookup(const char *name);	// host_reg.cpp
+#endif
 HMODULE LoadLibrary(const wchar_t *name) {
-	void *h = dlopen(posix_path(name).c_str(), RTLD_NOW | RTLD_LOCAL);
-	if (!h) fprintf(stderr, "furb_cli: dlopen %s: %s\n", posix_path(name).c_str(), dlerror());
+	std::string path = posix_path(name);
+	void *h = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+#ifdef __ANDROID__
+	// Android installs the packs with the app's other native libraries, as
+	// libfurb_<pack>.so; the Mappers folder only names them
+	if (!h) h = dlopen(("libfurb_" + path.substr(path.find_last_of('/') + 1)).c_str(), RTLD_NOW | RTLD_LOCAL);
+#endif
+	if (!h) {
+		fprintf(stderr, "furb: dlopen %s: %s\n", path.c_str(), dlerror());
+		return NULL;
+	}
+#ifndef FURB_PACK
+	// hand a mapper pack the executable's functions (see host() below)
+	typedef void (*Attach)(void *(*)(const char *));
+	if (Attach attach = (Attach)dlsym(h, "furb_pack_attach")) attach(furb_host_lookup);
+#endif
 	return (HMODULE)h;
 }
 void *GetProcAddress(HMODULE h, const char *name) { return h ? dlsym((void *)h, name) : NULL; }
@@ -306,17 +323,25 @@ BOOL PathAppend(LPTSTR path, LPCTSTR more) {
 // forwarder that looks the executable's function up once by name.  Resource
 // APIs pass this pack's own resource table as the module handle.
 #include "furb_rc.h"
+// The executable's LoadLibrary passes its furb_host_lookup in right after
+// loading the pack.  dlsym(RTLD_DEFAULT) also finds it on Linux, where the
+// executable exports it, but not on Android, where the host is itself a
+// library loaded without RTLD_GLOBAL.
+typedef void *(*Lookup)(const char *);
+static Lookup host_lookup;
+extern "C" __attribute__((visibility("default"))) void furb_pack_attach(Lookup l) { host_lookup = l; }
 static void *host(const char *name) {
-	typedef void *(*Lookup)(const char *);
-	static Lookup lookup = (Lookup)dlsym(RTLD_DEFAULT, "furb_host_lookup");
-	return lookup ? lookup(name) : NULL;
+	if (!host_lookup) host_lookup = (Lookup)dlsym(RTLD_DEFAULT, "furb_host_lookup");
+	return host_lookup ? host_lookup(name) : NULL;
 }
+// (a function not found yet is looked up again next time: a call made while
+// the pack loads, before furb_pack_attach, must not stick)
 #define W(ret, name, params, args) ret name params { \
-	typedef ret (*F) params; static F fn_ = (F)host(#name); \
+	typedef ret (*F) params; static F fn_; if (!fn_) fn_ = (F)host(#name); \
 	if (!fn_) return furb_zero<ret>(); return fn_ args; }
 #define H W
 #define WR(ret, name, params, args) ret name params { \
-	typedef ret (*F) params; static F fn_ = (F)host(#name); \
+	typedef ret (*F) params; static F fn_; if (!fn_) fn_ = (F)host(#name); \
 	hinst = (HINSTANCE)&furb_module_resources; \
 	if (!fn_) return furb_zero<ret>(); return fn_ args; }
 #define HR WR

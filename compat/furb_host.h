@@ -37,6 +37,13 @@ void get_cursor(int &x, int &y);
 void set_client(int w, int h);		// the "window" size GFX scales the cursor by
 void set_mic(float level);		// karaoke microphone peak level 0..1
 
+// ---- messages ----
+// MessageBox text (except the expected missing-DirectDraw/DirectInput ones):
+// printed to stderr unless a sink is set; the sink's return value is the
+// MessageBox result.
+typedef std::function<int(const std::wstring &text, const std::wstring &caption, UINT type)> MessageSink;
+void set_message_sink(MessageSink sink);
+
 // ---- audio ----
 typedef std::function<void(const void *, size_t)> AudioSink;
 void set_audio_sink(AudioSink sink);	// set before NES::Init to get a DirectSound

@@ -1,0 +1,11 @@
+/* libmain.so's exports: SDL's Java side runs SDL_main, FurbActivity calls
+   nativeCommand, and the mapper packs are handed furb_host_lookup. */
+{
+	global:
+		SDL_main;
+		Java_*;
+		JNI_OnLoad;
+		furb_host_lookup;
+	local:
+		*;
+};

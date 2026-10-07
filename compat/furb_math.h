@@ -42,3 +42,28 @@ template <class T> inline double log10(T x) { return furb_log10((double)x); }
 #define log2(...) furb_m::log2(__VA_ARGS__)
 #define log10(...) furb_m::log10(__VA_ARGS__)
 #define pow(...) furb_m::pow(__VA_ARGS__)
+
+// Filter.cpp (Butterworth::flush) turns on SSE flush-to-zero and
+// denormals-are-zero for the calling thread; prep_src.py points it here, which
+// sets the same mode on every architecture (x86: MXCSR FTZ+DAZ; ARM: the FZ
+// bit of FPCR/FPSCR, which flushes denormal inputs and results alike).
+static inline void furb_flush_denormals(void) {
+#if defined(__x86_64__) || defined(__i386__)
+	unsigned csr;
+	__asm__ volatile("stmxcsr %0" : "=m"(csr));
+	csr |= 0x8040;
+	__asm__ volatile("ldmxcsr %0" : : "m"(csr));
+#elif defined(__aarch64__)
+	unsigned long long fpcr;
+	__asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+	fpcr |= 1ull << 24;
+	__asm__ volatile("msr fpcr, %0" : : "r"(fpcr));
+#elif defined(__arm__)
+	unsigned fpscr;
+	__asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
+	fpscr |= 1u << 24;
+	__asm__ volatile("vmsr fpscr, %0" : : "r"(fpscr));
+#else
+#error "furb_flush_denormals: unknown architecture"
+#endif
+}
