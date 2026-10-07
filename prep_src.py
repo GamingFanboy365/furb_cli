@@ -84,6 +84,17 @@ for rel, pat, rep in FIXUPS:
         sys.exit('prep_src: fixup did not apply to %s: %s' % (rel, pat))
     open(p, 'w', encoding='utf-8', errors='surrogateescape').write(new)
 
+# The PPUs' word accesses to byte buffers at any offset (tile and sprite data):
+# fine on x86, a bus error on 32-bit ARM once the compiler merges two of them
+# into one 64-bit load (compat/windows.h: furb_ua32)
+for rel in ('src-main/src/PPU.cpp', 'src-main/src/OneBus.cpp', 'src-main/src/OneBus_VT369.cpp', 'src-main/src/UM6578.cpp'):
+    p = os.path.join(dst, rel)
+    text = open(p, encoding='utf-8', errors='surrogateescape').read()
+    new, n = re.subn(r'\(\(unsigned long \*\) ?', '((furb_ua32 *)', text)
+    if not n:
+        sys.exit('prep_src: no (unsigned long *) casts in ' + rel)
+    open(p, 'w', encoding='utf-8', errors='surrogateescape').write(new)
+
 # Win32 is ILP32/LLP64: 'long' is 32 bits there, and the sources rely on it
 # (pixel writes through 'unsigned long *', CRC tables, register structs,
 # savestate fields).  On LP64 Linux it is 64 bits, so every 'long' that is

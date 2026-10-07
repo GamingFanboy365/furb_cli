@@ -4,7 +4,6 @@
 	global:
 		SDL_main;
 		Java_*;
-		JNI_OnLoad;
 		furb_host_lookup;
 	local:
 		*;

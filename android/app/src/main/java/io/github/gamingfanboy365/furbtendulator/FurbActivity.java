@@ -129,6 +129,12 @@ public class FurbActivity extends SDLActivity {
                 if (c != null && c.moveToFirst()) name = c.getString(0);
             } catch (Exception ignored) {
             }
+            // (older media providers leave the display name empty; their path column has it)
+            if (name == null || name.isEmpty())
+                try (Cursor c = getContentResolver().query(uri, new String[] {"_data"}, null, null, null)) {
+                    if (c != null && c.moveToFirst() && c.getString(0) != null) name = new File(c.getString(0)).getName();
+                } catch (Exception ignored) {
+                }
         }
         if (name == null) name = uri.getLastPathSegment();
         if (name == null || name.isEmpty()) name = "game.nes";
@@ -215,6 +221,8 @@ public class FurbActivity extends SDLActivity {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
+        // list the device's storage too, not only Recent and Downloads (older pickers hide it)
+        i.putExtra("android.content.extra.SHOW_ADVANCED", true);
         picking = true;
         try {
             startActivityForResult(i, what);

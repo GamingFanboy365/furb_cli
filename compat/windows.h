@@ -20,6 +20,12 @@
 #include <time.h>
 #include <strings.h>
 
+// A 32-bit value at any address.  The PPUs fill and read their tile and
+// sprite buffers through (unsigned long *) casts of byte pointers at odd
+// offsets; prep_src.py retypes those casts to this, since 32-bit ARM faults on
+// the 64-bit loads and stores the compiler merges word accesses into.
+typedef uint32_t furb_ua32 __attribute__((aligned(1), may_alias));
+
 #ifdef __cplusplus
 #include <string>
 #include <utility>

@@ -208,10 +208,11 @@ and the settings are a small Java activity (`android/app`).  The debugger
 windows and the other desktop dialogs are not part of it: for those, and for
 AI-assisted debugging, use `furb` and `furb_cli` on a PC.
 
-**No APK is included yet.** Building one needs Google's Android SDK and NDK
-(below), which were out of reach where this port was written; everything
-else was built and tested there (see *What was tested*).  The first APK
-build is the first real test of the packaging, so expect a fix or two.
+`bin-android/Furbtendulator.apk` is a ready-made build for all four ABIs.
+Install it by opening it on the device (Android asks to allow installs from
+that app, the browser or file manager, the first time) or with
+`adb install bin-android/Furbtendulator.apk`.  It has run on an emulated
+phone so far, not yet on a real one (see *What was tested*).
 
 ### Using it
 
@@ -286,7 +287,9 @@ The APK is signed with `FURB_KEYSTORE` (with `FURB_KEYSTORE_PASSWORD`,
 `android/furb-release.keystore`, which the script makes the first time
 (password `furbtendulator`; it is not committed).  Keep that file: Android
 installs an update over an earlier version only when both are signed with the
-same key, and uninstalling instead deletes the app's saves.
+same key, and uninstalling instead deletes the app's saves.  The included
+APK is signed with such a key of its own: an APK built with another key
+installs only after it is uninstalled.
 
 ### Inside
 
@@ -321,16 +324,21 @@ that it exits cleanly with its settings saved.
 
 ### What was tested
 
-`furb_touch` passes `tools/touch_smoke.py` built with GCC and with clang.  The
-emulation itself was compared across the CPUs Android runs on, built the way
-the NDK builds it (clang 18, the NDK r27 compiler): arm64 and 32-bit ARMv7
-(under qemu) and 32-bit x86 give exactly the output of the x86_64 build on
-all 311 comparison ROMs (below).  The Java activity and SDL's Java side
-compile against Android 15's API, and the Android-only native code compiles.
-Nothing has run on an Android device or emulator yet: the APK build, the
-activity at run time, real touch screens, gamepads, sound latency, speed on
-phones and the app's life cycle (pausing, being ended in the background) are
-untested.
+The APK ran on Android 7.0 in Google's Android emulator (an x86_64 system
+image, without hardware acceleration): it starts, finds its mapper packs,
+opens games through the file picker and through *Open with*, plays them
+(Star Ally and Lucky Lawn Mower on VT03, VT09 and VT369, Zelda II, Pin Ball,
+Lonely Island; the on-screen START button reaches the game), saves and
+loads states, turns to landscape, and exits and starts again cleanly; an
+update installed over it keeps the games and saves.  `furb_touch` passes
+`tools/touch_smoke.py` built with GCC and with clang.  The emulation was
+compared across the CPUs Android runs on, built with clang 18 as the NDK r27
+builds it: arm64 and 32-bit ARMv7 (under qemu) and 32-bit x86 give exactly
+the output of the x86_64 build on all 311 comparison ROMs and these games
+(below).  Untested: a real phone or tablet (real touch screens, speed,
+sound latency), the ARM builds inside Android (the emulator ran the x86_64
+one), gamepads and keyboards on Android, Android TV, Chromebooks, and newer
+Android versions.
 
 ## Determinism and 32/64-bit and ARM builds
 
@@ -346,7 +354,11 @@ multiply-add (`-ffp-contract=off`: ARM compilers fuse `a*b+c` by default, and
 the palette generator's hue search then picks other colours for a few
 palette entries) and with a signed `char` (ARM's is unsigned), and the sound
 filters' switch to flush denormals to zero, done with SSE intrinsics on
-Windows, sets the same mode on ARM (`compat/furb_math.h`).  Two upstream reads of uninitialised memory
+Windows, sets the same mode on ARM (`compat/furb_math.h`).  The PPUs read and
+write their tile and sprite buffers a word at a time at any byte offset,
+which 32-bit ARM faults on once the compiler pairs two such accesses into
+one 64-bit load; `prep_src.py` gives those accesses an unaligned type
+(`furb_ua32`).  Two upstream reads of uninitialised memory
 (the first audio sample; CPU/PPU members the constructors never set) are
 closed: the sound buffer and every `new` allocation start zeroed.
 
@@ -446,6 +458,7 @@ directory.  `build.py` never modifies the source tree; it copies it to
 | Path | Contents |
 |------|----------|
 | `bin/` | the prebuilt programs (`furb`, `furb_cli`), mapper packs and data files (x86_64, built on Ubuntu 24.04, GCC 13) |
+| `bin-android/` | `Furbtendulator.apk`, the Android app for arm64-v8a, armeabi-v7a, x86 and x86_64 (Android 5.0+, built with NDK r27 and SDL 2.32.10) |
 | `bin32/` | standalone 32-bit `furb` and `furb_cli` with their mapper packs and data files, for older systems (i386, glibc 2.29+, built against Ubuntu 20.04's GCC 9, glibc, GTK 3 and SDL 2) |
 | `Furbtendulator-src/` | Furbtendulator's complete source as released (minus Visual Studio's IntelliSense cache), plus `bin-data/` (the release's `.cfg` files and empty `BIOS/`, `samples/` folders) |
 | `furb_cli.cpp` | the command-line front end (replaces `WinMain`) |

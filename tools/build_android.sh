@@ -98,7 +98,13 @@ fi
 
 # ---- the APK
 echo "sdk.dir=$SDK" > "$HERE/android/local.properties"
-(cd "$HERE/android" && ANDROID_HOME="$SDK" ./gradlew --no-daemon assembleRelease)
+# (one worker, and a few tries: Maven Central answers bursts of parallel
+# downloads with 429 Too Many Requests; what was fetched stays cached)
+for try in 1 2 3 4; do
+	(cd "$HERE/android" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --max-workers=1 assembleRelease) && break
+	[ $try = 4 ] && exit 1
+	echo "Gradle failed; trying again in 20 s"; sleep 20
+done
 mkdir -p "$HERE/bin-android"
 cp "$HERE/android/app/build/outputs/apk/release/app-release.apk" "$HERE/bin-android/Furbtendulator.apk"
 echo "built $HERE/bin-android/Furbtendulator.apk"
