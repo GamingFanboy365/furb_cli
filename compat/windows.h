@@ -20,6 +20,12 @@
 #include <time.h>
 #include <strings.h>
 
+// A 32-bit value at any address.  The PPUs fill and read their tile and
+// sprite buffers through (unsigned long *) casts of byte pointers at odd
+// offsets; prep_src.py retypes those casts to this, since 32-bit ARM faults on
+// the 64-bit loads and stores the compiler merges word accesses into.
+typedef uint32_t furb_ua32 __attribute__((aligned(1), may_alias));
+
 #ifdef __cplusplus
 #include <string>
 #include <utility>
@@ -184,7 +190,7 @@ typedef struct { BITMAPINFOHEADER bmiHeader; RGBQUAD bmiColors[1]; } BITMAPINFO,
 typedef struct { HDC hdc; BOOL fErase; RECT rcPaint; BOOL fRestore, fIncUpdate; BYTE rgbReserved[32]; } PAINTSTRUCT;
 typedef struct { UINT cbSize, fMask; int nMin, nMax; UINT nPage; int nPos, nTrackPos; } SCROLLINFO;
 typedef struct { DWORD lStructSize; HWND hwndOwner; HINSTANCE hInstance; LPCTSTR lpstrFilter; LPTSTR lpstrCustomFilter; DWORD nMaxCustFilter, nFilterIndex; LPTSTR lpstrFile; DWORD nMaxFile; LPTSTR lpstrFileTitle; DWORD nMaxFileTitle; LPCTSTR lpstrInitialDir, lpstrTitle; DWORD Flags; WORD nFileOffset, nFileExtension; LPCTSTR lpstrDefExt; LPARAM lCustData; void *lpfnHook; LPCTSTR lpTemplateName; } OPENFILENAME;
-typedef struct { UINT cbSize, style; void *lpfnWndProc; int cbClsExtra, cbWndExtra; HINSTANCE hInstance; HICON hIcon; HCURSOR hCursor; HBRUSH hbrBackground; LPCTSTR lpszMenuName, lpszClassName; HICON hIconSm; } WNDCLASSEX;
+typedef struct { UINT cbSize, style; LRESULT (*lpfnWndProc)(HWND, UINT, WPARAM, LPARAM); int cbClsExtra, cbWndExtra; HINSTANCE hInstance; HICON hIcon; HCURSOR hCursor; HBRUSH hbrBackground; LPCTSTR lpszMenuName, lpszClassName; HICON hIconSm; } WNDCLASSEX;
 typedef struct { UINT length, flags, showCmd; POINT ptMinPosition, ptMaxPosition; RECT rcNormalPosition; } WINDOWPLACEMENT;
 typedef struct { DWORD cbSize; RECT rcMonitor, rcWork; DWORD dwFlags; } MONITORINFO;
 typedef struct { WORD wFormatTag, nChannels; DWORD nSamplesPerSec, nAvgBytesPerSec; WORD nBlockAlign, wBitsPerSample, cbSize; } WAVEFORMATEX, *LPWAVEFORMATEX;

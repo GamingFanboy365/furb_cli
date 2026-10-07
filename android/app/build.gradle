@@ -1,0 +1,63 @@
+// The app.  Its native libraries, its data files and SDL's Java half come
+// from tools/build_android.sh, which builds them into ../native-out and then
+// runs this build; see the README.
+plugins {
+    id 'com.android.application'
+}
+
+def out = new File(rootDir, 'native-out')
+
+android {
+    namespace 'io.github.gamingfanboy365.furbtendulator'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'io.github.gamingfanboy365.furbtendulator'
+        minSdk 21            // Android 5.0
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    sourceSets.main {
+        java.srcDirs += new File(out, 'sdl-java')     // org.libsdl.app (SDLActivity, ...)
+        jniLibs.srcDirs = [new File(out, 'jniLibs')]  // libSDL2, libmain, libfurb_*.so per ABI
+        assets.srcDirs = [new File(out, 'assets')]    // furb/: *.cfg, BIOS/, samples/
+    }
+
+    // A key of your own: FURB_KEYSTORE (and FURB_KEYSTORE_PASSWORD,
+    // FURB_KEY_ALIAS, FURB_KEY_PASSWORD).  tools/build_android.sh makes one
+    // (android/furb-release.keystore) if none is given.  Keep it: an update
+    // must be signed with the same key, or Android refuses to install it over
+    // the old version.
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('FURB_KEYSTORE') ?: new File(rootDir, 'furb-release.keystore').path)
+            storePassword System.getenv('FURB_KEYSTORE_PASSWORD') ?: 'furbtendulator'
+            keyAlias System.getenv('FURB_KEY_ALIAS') ?: 'furb'
+            keyPassword System.getenv('FURB_KEY_PASSWORD') ?: System.getenv('FURB_KEYSTORE_PASSWORD') ?: 'furbtendulator'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging false   // stored uncompressed and 16 KiB aligned
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}

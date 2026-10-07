@@ -1,3 +1,14 @@
 build/
+build-*/
 build32/
 __pycache__/
+# game files (never committed)
+*.nes
+*.NES
+*.unf
+*.unif
+*.fds
+*.qd
+*.nsf
+*.nsfe
+roms/

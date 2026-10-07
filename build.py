@@ -13,6 +13,14 @@ GUI (GTK 3 / SDL 2), and furb_cli, the headless program for scripted runs.
 --no-gui build furb_cli only (the GUI needs libgtk-3-dev and libsdl2-dev)
 --cxx, --cc, --sysroot   another compiler / system root (tools/build_bin32.sh
          uses them for the glibc 2.29-compatible 32-bit build in bin32/)
+--touch  also build furb_touch: the Android front end (android/native) on
+         desktop SDL 2, for testing it without a phone
+--android ABI --ndk DIR --sdl DIR --sdl-lib DIR
+         the Android libraries for one ABI (arm64-v8a, armeabi-v7a, x86,
+         x86_64) with the NDK's clang: BUILD/android/libmain.so (emulator +
+         front end) and libfurb_{iNES,FDS,NSF,VS}.so (the mapper packs).
+         --sdl is SDL 2's source (its include/), --sdl-lib the folder with
+         libSDL2.so built for that ABI.  tools/build_android.sh does it all.
 
 Produces BUILD/furb, BUILD/furb_cli and BUILD/Mappers/{iNES,FDS,NSF,VS}.so (the mapper packs,
 loaded at run time exactly like Furbtendulator loads Mappers\*.dll).
@@ -22,7 +30,7 @@ The code assumes Win32's 32-bit 'long'; prep_src.py rewrites it to 'int' in
 the build copy, so the native 64-bit build behaves exactly like the 32-bit one.
 Incremental: only changed sources are recompiled.
 """
-import argparse, os, re, shutil, subprocess, sys
+import argparse, os, re, shlex, shutil, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,7 +47,26 @@ ap.add_argument('--no-gui', action='store_true', help='build furb_cli only, not 
 ap.add_argument('--cxx', default='g++', help='C++ compiler (default g++)')
 ap.add_argument('--cc', default='gcc', help='C compiler, for the bundled math (default gcc)')
 ap.add_argument('--sysroot', help='build against this system root (tools/build_bin32.sh: an older glibc)')
+ap.add_argument('--objcopy', default='objcopy', help='objcopy for the target (default objcopy)')
+ap.add_argument('--cflags', default='', help='more flags for every compile and link (e.g. --target=... for clang)')
+ap.add_argument('--touch', action='store_true', help='also build furb_touch, the Android front end on desktop SDL 2')
+ap.add_argument('--android', metavar='ABI', choices=['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'])
+ap.add_argument('--ndk', default=os.environ.get('ANDROID_NDK_HOME') or os.environ.get('ANDROID_NDK_ROOT'))
+ap.add_argument('--api', type=int, default=21, help='lowest Android API level (default 21, Android 5.0)')
+ap.add_argument('--sdl', help='SDL 2 source tree (for --android)')
+ap.add_argument('--sdl-lib', help='folder with libSDL2.so for the ABI (for --android)')
 args = ap.parse_args()
+
+# Android: the NDK's clang for the ABI, position-independent code throughout
+# (the emulator is a library there, loaded by the app), no GTK program
+ANDROID_TARGET = {'arm64-v8a': 'aarch64-linux-android', 'armeabi-v7a': 'armv7a-linux-androideabi',
+                  'x86': 'i686-linux-android', 'x86_64': 'x86_64-linux-android'}
+if args.android:
+    if not (args.ndk and args.sdl and args.sdl_lib):
+        sys.exit('build.py: --android needs --ndk, --sdl and --sdl-lib')
+    tc = os.path.join(args.ndk, 'toolchains', 'llvm', 'prebuilt', 'linux-x86_64', 'bin')
+    args.cxx, args.cc, args.objcopy = os.path.join(tc, 'clang++'), os.path.join(tc, 'clang'), os.path.join(tc, 'llvm-objcopy')
+    args.no_gui = True
 
 if not os.path.isdir(os.path.join(args.furb, 'src-main')):
     sys.exit('build.py: no Furbtendulator source at %s (pass --furb, or unzip Furbtendulator-main.zip '
@@ -91,11 +118,22 @@ COMPAT = os.path.join(HERE, 'compat')
 ARCH = ['-m32', '-msse2', '-mfpmath=sse'] if args.m32 else []
 if args.sysroot:
     ARCH += ['--sysroot=' + os.path.abspath(args.sysroot)]
+if args.android:
+    ARCH += ['--target=%s%d' % (ANDROID_TARGET[args.android], args.api), '-fPIC']
+    if args.android == 'x86':	# SSE arithmetic, as the 32-bit Linux build (the ABI has SSSE3)
+        ARCH += ['-msse2', '-mfpmath=sse']
+ARCH += shlex.split(args.cflags)
 CXX = [args.cxx] + ARCH + ['-O2', '-std=gnu++17', '-fpermissive', '-w', '-fno-operator-names',
        '-fwrapv', '-fno-strict-aliasing', '-I' + COMPAT, '-DUNICODE', '-D_UNICODE',
        '-DWIN32', '-D_WINDOWS', '-DNDEBUG', '-include', 'stdexcept', '-include', 'cstring',
-       '-include', 'locale', '-include', 'codecvt']	# MSVC's headers pull these in implicitly
-# keep-inline: MSVC emits 'inline' members that other files call (PPU IncrementH)
+       '-include', 'locale', '-include', 'codecvt',	# MSVC's headers pull these in implicitly
+       '-Dregister=',	# (removed in C++17: g++ only warns, clang refuses it)
+       # the same arithmetic on every CPU: no fused multiply-add (ARM compilers
+       # fuse a*b+c by default, and the palette generator's hue search then
+       # picks other colours) and signed char as on x86 (ARM's is unsigned)
+       '-ffp-contract=off', '-fsigned-char']
+# keep-inline: MSVC emits 'inline' members that other files call (PPU IncrementH;
+# prep_src.py also un-inlines it, for clang, which ignores the option)
 MAIN_INC = ['-I' + os.path.join(SRC, 'src-main', 'src'), '-fkeep-inline-functions']
 EMU = ['-include', 'furb_math.h']	# libm calls -> the bundled musl subset (compat/furb_math.h)
 DLL_FLAGS = ['-fPIC', '-fvisibility=hidden', '-D_USRDLL', '-DFURB_PACK']
@@ -154,6 +192,22 @@ if gui_flags:
         if f.endswith('.cpp'):
             jobs.append((os.path.join(GUI, f), os.path.join(OBJ, 'gui', f[:-4] + '.o'), CXX + ['-UWIN32', '-U_WINDOWS'] + gui_flags + ['-I' + GUI]))
 
+# The touch screen front end (android/native): the Android app's, or
+# furb_touch on desktop SDL 2.  (-UWIN32: SDL's headers would think it Windows)
+TOUCH = os.path.join(HERE, 'android', 'native')
+touch_flags = touch_libs = None
+if args.android:
+    touch_flags = ['-I' + os.path.join(args.sdl, 'include')]
+elif args.touch:
+    try:
+        touch_flags = subprocess.check_output(['pkg-config', '--cflags', 'sdl2'], text=True).split()
+        touch_libs = subprocess.check_output(['pkg-config', '--libs', 'sdl2'], text=True).split()
+    except (OSError, subprocess.CalledProcessError):
+        sys.exit('build.py: --touch needs SDL 2 (apt install libsdl2-dev)')
+if touch_flags is not None:
+    jobs.append((os.path.join(TOUCH, 'main.cpp'), os.path.join(OBJ, 'touch', 'main.o'),
+                 CXX + MAIN_INC + ['-UWIN32', '-U_WINDOWS', '-I' + TOUCH] + touch_flags))
+
 for name, _, define in PACKS:
     flags = CXX + DLL_FLAGS + ['-D' + define]
     for s in pack_srcs[name]:
@@ -161,7 +215,8 @@ for name, _, define in PACKS:
     jobs.append((os.path.join(COMPAT, 'compat.cpp'), os.path.join(OBJ, name, 'compat.o'), flags))
     jobs.append((resources(name), os.path.join(OBJ, name, 'res_%s.o' % name), flags))
 
-hdr_time = max([os.path.getmtime(os.path.join(COMPAT, f)) for f in os.listdir(COMPAT)] + [os.path.getmtime(os.path.join(HERE, 'gui', 'gui.h'))])
+hdr_time = max([os.path.getmtime(os.path.join(COMPAT, f)) for f in os.listdir(COMPAT)] + [os.path.getmtime(os.path.join(HERE, 'gui', 'gui.h')),
+                os.path.getmtime(os.path.join(HERE, 'android', 'native', 'font.h'))])
 # (furb_cli.cpp also depends on the headers; handled by the same rule)
 
 def compile_one(job):
@@ -180,9 +235,11 @@ with ThreadPoolExecutor(args.j) as ex:
 if errors:
     for e in errors[:5]:
         print(e, file=sys.stderr)
-    sys.exit('build.py: %d file(s) failed to compile' % len(errors))
+    open(os.path.join(B, 'compile_errors.log'), 'w').write('\n'.join(errors))
+    sys.exit('build.py: %d file(s) failed to compile (all of them: %s)' % (len(errors), os.path.join(B, 'compile_errors.log')))
 
 objs_of = lambda tag: [j[1] for j in jobs if os.sep + tag + os.sep in j[1]]
+obj_for_host = lambda name: os.path.join(OBJ, 'main', name)
 
 # The musl math subset (compat/libm): compiled as C without FMA contraction,
 # merged into one object whose only global symbols are furb_sin, furb_pow, ...
@@ -205,9 +262,10 @@ if not os.path.exists(libm_obj) or os.path.getmtime(libm_obj) < max(
             '-c', f, '-o', o])
         mo.append(o)
     subprocess.check_call([args.cc] + ARCH + ['-r', '-nostdlib', '-o', libm_obj + '.tmp'] + mo)
-    cmd = ['objcopy', '--wildcard', '--keep-global-symbol=__x86.get_pc_thunk.*']	# i386 PIC thunks are COMDAT
+    cmd = [args.objcopy, '--wildcard', '--keep-global-symbol=__x86.get_pc_thunk.*']	# i386 PIC thunks are COMDAT
     for fn in MATH_FUNCS:
-        cmd += ['--redefine-sym', '%s=furb_%s' % (fn, fn), '--keep-global-symbol=furb_' + fn]
+        # (both names: GNU objcopy keeps by the new name, llvm-objcopy by the old)
+        cmd += ['--redefine-sym', '%s=furb_%s' % (fn, fn), '--keep-global-symbol=furb_' + fn, '--keep-global-symbol=' + fn]
     subprocess.check_call(cmd + [libm_obj + '.tmp', libm_obj])
     os.remove(libm_obj + '.tmp')
 exe = os.path.join(B, 'furb_cli')
@@ -218,15 +276,34 @@ def link(what, cmd):
         undef = sorted(set(re.findall(r"undefined reference to `([^']+)'", r.stderr)))
         sys.exit('build.py: linking %s failed\n%s' % (what, '\n'.join(undef) or r.stderr[-4000:]))
 
-# -z defs: the pack must be self-contained, like a DLL (fail at build, not dlopen)
-for name, _, _ in PACKS:
-    link('Mappers/%s.so' % name, [args.cxx] + ARCH + ['-shared', '-static-libstdc++', '-static-libgcc',
-         '-Wl,--exclude-libs,ALL', '-fvisibility=hidden', '-Wl,-z,defs',
-         '-o', os.path.join(B, 'Mappers', name + '.so')] + objs_of(name) + [libm_obj, '-ldl'])
-# export exactly one symbol, furb_host_lookup, through which the packs reach
-# the executable's dialogs / cursor / file pickers (compat.cpp)
-link('furb_cli', [args.cxx] + ARCH + ['-static-libstdc++', '-static-libgcc',
-     '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', exe] + objs_of('main') + [libm_obj, '-ldl'])
+emu = [o for o in objs_of('main') if os.path.basename(o) not in ('furb_cli.o', 'host_cli.o')]
+if args.android:
+    # The app's libraries.  The packs are named libfurb_<pack>.so, as Android
+    # wants libraries in an app (compat.cpp's LoadLibrary finds them so).
+    # 16 KiB pages: Android 15 devices may use them.
+    AOUT = os.path.join(B, 'android')
+    os.makedirs(AOUT, exist_ok=True)
+    # (no-dependent-libraries: lld would follow the sources' #pragma comment(lib, "winmm.lib"))
+    ALINK = [args.cxx] + ARCH + ['-shared', '-static-libstdc++', '-Wl,-z,max-page-size=16384', '-Wl,--gc-sections',
+                                 '-Wl,--no-dependent-libraries']
+    for name, _, _ in PACKS:
+        link('libfurb_%s.so' % name, ALINK + ['-Wl,--exclude-libs,ALL', '-fvisibility=hidden', '-Wl,-z,defs',
+             '-o', os.path.join(AOUT, 'libfurb_%s.so' % name)] + objs_of(name) + [libm_obj, '-ldl'])
+    # libmain.so: SDL's Java side calls its SDL_main, FurbActivity its
+    # nativeCommand; nothing else is exported (android/native/libmain.map)
+    link('libmain.so', ALINK + ['-Wl,-z,defs', '-Wl,--version-script=' + os.path.join(TOUCH, 'libmain.map'),
+         '-o', os.path.join(AOUT, 'libmain.so')] + emu + [obj_for_host('host_cli.o'), os.path.join(OBJ, 'touch', 'main.o'), libm_obj,
+         '-L' + os.path.abspath(args.sdl_lib), '-lSDL2', '-llog', '-landroid', '-ldl', '-lm'])
+else:
+    # -z defs: the pack must be self-contained, like a DLL (fail at build, not dlopen)
+    for name, _, _ in PACKS:
+        link('Mappers/%s.so' % name, [args.cxx] + ARCH + ['-shared', '-static-libstdc++', '-static-libgcc',
+             '-Wl,--exclude-libs,ALL', '-fvisibility=hidden', '-Wl,-z,defs',
+             '-o', os.path.join(B, 'Mappers', name + '.so')] + objs_of(name) + [libm_obj, '-ldl'])
+    # export exactly one symbol, furb_host_lookup, through which the packs reach
+    # the executable's dialogs / cursor / file pickers (compat.cpp)
+    link('furb_cli', [args.cxx] + ARCH + ['-static-libstdc++', '-static-libgcc',
+         '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', exe] + objs_of('main') + [libm_obj, '-ldl'])
 
 # Furbtendulator's data files belong next to the program, as on Windows:
 # cheats.cfg (cheat database), dip.cfg (DIP switch definitions), fastload.cfg,
@@ -245,9 +322,17 @@ for data in (os.path.join(os.path.dirname(args.furb), 'bin'), os.path.join(args.
         break
 if gui_flags:
     gui_exe = os.path.join(B, 'furb')
-    emu = [o for o in objs_of('main') if os.path.basename(o) not in ('furb_cli.o', 'host_cli.o')]
     link('furb', [args.cxx] + ARCH + ['-static-libstdc++', '-static-libgcc',
          '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', gui_exe] + emu + objs_of('gui') +
          [libm_obj, '-ldl', '-lpthread'] + gui_libs)
     print('built %s' % gui_exe)
-print('built %s' % exe)
+if args.touch:
+    touch_exe = os.path.join(B, 'furb_touch')
+    link('furb_touch', [args.cxx] + ARCH + ['-static-libstdc++', '-static-libgcc',
+         '-Wl,--dynamic-list=' + os.path.join(HERE, 'exports.list'), '-o', touch_exe] + emu +
+         [obj_for_host('host_cli.o'), os.path.join(OBJ, 'touch', 'main.o'), libm_obj, '-ldl', '-lpthread'] + touch_libs)
+    print('built %s' % touch_exe)
+if args.android:
+    print('built %s' % os.path.join(B, 'android'))
+else:
+    print('built %s' % exe)
