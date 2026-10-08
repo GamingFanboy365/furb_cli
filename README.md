@@ -219,15 +219,27 @@ phone so far, not yet on a real one (see *What was tested*).
 The first screen asks for a game: MENU (or the Back button, or a gamepad's
 Guide button, or Select+Start together) opens the menu, and *Open game...*
 picks a file through Android's file picker.  `.nes`, `.unf`, `.fds`, `.nsf`
-and the other formats Furbtendulator opens work, and so does a `.zip` holding
-one of them.  A picked game is copied into the app's own storage, so it is
-listed under *Recent games* afterwards and its battery saves and save states
-stay with it.  File managers can also open a game in the app directly
-(*Open with*).
+and the other formats Furbtendulator opens work, and so do compressed files:
+ZIP, 7z and gzip.  An archive holding one game opens it; one holding several
+lists them to choose from, with a search box when there are many (any words
+typed, anywhere in the name).  RAR archives are not supported.  A picked game
+is copied into the app's own storage, so it is listed under *Recent games*
+afterwards and its battery saves and save states stay with it.  File
+managers can also open a game or an archive in the app directly (*Open
+with*).
+
+An NSF file (NES music) opens in a player: its title, artist and copyright,
+the expansion sound it uses (VRC6, VRC7, FDS, MMC5, Namco 163, Sunsoft 5B or
+OneBus, all played by Furbtendulator's NSF support), the song number and the
+track's name where the file has one (NSFe and NSF2), the time played and the
+sound's waveform, with PREV, PLAY/STOP and NEXT buttons.  The starting song
+plays as soon as the file opens.  On a gamepad or keyboard, left and right
+change the song (up and down by ten), A or Start plays or stops, B stops.
+The music stops when the app leaves the screen.
 
 The menu has save and load state (ten slots, shown with the time they were
 saved), reset and power cycle, the disk side for Famicom Disk System games,
-*Insert coin* for Vs. System games, the song for NSF files, the region (NTSC,
+*Insert coin* for Vs. System games, a song list for NSF files, the region (NTSC,
 PAL, Dendy), the settings, *Install a BIOS file...* and *Exit*.  The emulator
 pauses while the menu is open.  *Install a BIOS file...* copies a firmware
 file into the app's `BIOS` folder under the name Furbtendulator looks for,
@@ -319,10 +331,18 @@ lists them; `menu` and `state` print what the menu would show).
 `tools/touch_smoke.py --furb build/furb_touch` starts it on Xvfb in a
 landscape and a portrait window and checks that a game opens from a command
 and draws, that the on-screen A button and the keyboard reach the pad, that
-MENU asks for the menu, that save states, reset and the settings work, and
-that it exits cleanly with its settings saved.
+MENU asks for the menu, that save states, reset and the settings work, that
+it exits cleanly with its settings saved, and that the NSF player plays a
+generated NSF, changes songs with NEXT and stops.
 
 ### What was tested
+
+The NSF player and the archives were tested the same way: three NSF files
+(Frogger, Missile Command, and Sudoku 6 in 1's 46 songs) play, change songs
+and stop in portrait and landscape, and a ZIP and a 7z of nine games and NSFs
+list them, find them by search and open the one picked, while a one-game ZIP
+and a gzip file open directly.  The OneBus and other expansion-sound NSFs
+were not tried in the app.
 
 The APK ran on Android 7.0 in Google's Android emulator (an x86_64 system
 image, without hardware acceleration): it starts, finds its mapper packs,
@@ -480,7 +500,8 @@ licensed under the GNU General Public License, version 2 or later; see
 `LICENSE`. The front ends, the compatibility layer, the GUI layer and the
 build scripts were written for PocketVT and are distributed under the same
 license as a derivative work.  The Android app uses SDL 2 (zlib license),
-fetched when it is built.  `compat/libm` is a subset of musl 1.2.4,
+fetched when it is built, and Apache Commons Compress with XZ for Java
+(Apache 2.0 and public domain) for 7z archives.  `compat/libm` is a subset of musl 1.2.4,
 Copyright (C) 2005-2020 Rich Felker et al., under the MIT license
 (`compat/libm/COPYRIGHT.musl`).  This package includes the complete
 corresponding source code for the included binaries.

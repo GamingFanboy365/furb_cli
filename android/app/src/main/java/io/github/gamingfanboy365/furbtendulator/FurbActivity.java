@@ -39,14 +39,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 public class FurbActivity extends SDLActivity {
     static native void nativeCommand(String command);
 
     private static final int PICK_GAME = 1, PICK_BIOS = 2;
     // what Furbtendulator opens (NES.cpp: OpenFile)
-    private static final String[] GAME_EXTENSIONS = {".nes", ".unf", ".unif", ".fds", ".qd", ".nsf", ".tnes", ".stbx", ".bin", ".mfc", ".smc"};
+    private static final String[] GAME_EXTENSIONS = {".nes", ".unf", ".unif", ".fds", ".qd", ".nsf", ".nsfe", ".tnes", ".stbx", ".bin", ".mfc", ".smc"};
 
     private Map<String, String> state = new HashMap<>();
     private int openDialogs = 0;
@@ -78,8 +77,7 @@ public class FurbActivity extends SDLActivity {
 
     private void openIntent(Intent intent) {
         if (intent == null || intent.getData() == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
-        File f = importGame(intent.getData());
-        if (f != null) nativeCommand("open " + f.getAbsolutePath());
+        openPicked(intent.getData());
     }
 
     // ------------------------------------------------------------ data files
@@ -147,38 +145,251 @@ public class FurbActivity extends SDLActivity {
         return false;
     }
 
+    // ------------------------------------------------------------ games and archives
     // A picked game is copied into the app (files/roms): the emulator opens
     // files by path, and its battery saves and save states are named after
-    // the file.  From a .zip, the first file in it that looks like a game.
-    private File importGame(Uri uri) {
-        String name = displayName(uri);
+    // the file.  ZIP, 7z and gzip files are unpacked: an archive with one game
+    // opens it, one with several lists them to choose from.  The copying and
+    // unpacking run off the UI thread, with the emulator paused.
+    private boolean busy = false;
+
+    private File romsDir() {
         File dir = new File(getFilesDir(), "roms");
         dir.mkdirs();
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            if (in == null) throw new IOException("cannot read it");
-            if (name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
-                try (ZipInputStream zip = new ZipInputStream(in)) {
-                    for (ZipEntry e; (e = zip.getNextEntry()) != null; ) {
-                        String inner = new File(e.getName()).getName();
-                        if (e.isDirectory() || !isGame(inner)) continue;
-                        File out = new File(dir, inner);
-                        try (OutputStream o = new FileOutputStream(out)) {
-                            copy(zip, o);
-                        }
-                        return out;
+        return dir;
+    }
+
+    private static String baseName(String path) {
+        String n = path.substring(path.lastIndexOf('/') + 1);
+        n = n.replaceAll("[\\\\:*?\"<>|\\x00-\\x1f]", "_");
+        return n.isEmpty() ? "game.nes" : n;
+    }
+
+    private void openPicked(Uri uri) {
+        android.util.Log.i("furb", "opening " + uri);
+        busy = true;
+        nativeCommand("pause");
+        new Thread(() -> {
+            String name = displayName(uri);
+            File tmp = null;
+            Archive archive = null;
+            Runnable then;
+            try {
+                tmp = File.createTempFile("picked", null, getCacheDir());
+                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream o = new FileOutputStream(tmp)) {
+                    if (in == null) throw new IOException("cannot read it");
+                    copy(in, o);
+                }
+                archive = Archive.open(tmp, name);
+                android.util.Log.i("furb", name + ": " + (archive == null ? "not an archive" : archive.getClass().getSimpleName()));
+                if (archive == null) {
+                    File out = new File(romsDir(), baseName(name));
+                    if (!tmp.renameTo(out)) throw new IOException("cannot store it");
+                    then = () -> openGame(out);
+                } else {
+                    List<String> games = archive.games();
+                    if (games.isEmpty()) throw new IOException("there is no game in it");
+                    if (games.size() == 1) {
+                        File out = archive.extract(games.get(0), romsDir());
+                        archive.close();
+                        tmp.delete();
+                        then = () -> openGame(out);
+                    } else {
+                        Archive a = archive;
+                        File t = tmp;
+                        then = () -> chooseFromArchive(name, a, games, t);
                     }
                 }
-                throw new IOException("no game file in " + name);
+            } catch (Exception | LinkageError e) {	// (LinkageError: a library missing a part of Java this Android lacks)
+                if (archive != null) archive.close();
+                if (tmp != null) tmp.delete();
+                String why = e.getMessage() != null ? e.getMessage() : e.toString();
+                android.util.Log.w("furb", "could not open " + name, e);
+                then = () -> Toast.makeText(this, "Could not open " + name + ": " + why, Toast.LENGTH_LONG).show();
             }
-            File out = new File(dir, name);
-            try (OutputStream o = new FileOutputStream(out)) {
+            Runnable r = then;
+            runOnUiThread(() -> {
+                busy = false;
+                r.run();
+                closed();
+            });
+        }).start();
+    }
+
+    private void openGame(File f) {
+        f.setLastModified(System.currentTimeMillis());
+        nativeCommand("open " + f.getAbsolutePath());
+    }
+
+    // The games in an archive, with a search box when there are many
+    private void chooseFromArchive(String archiveName, Archive archive, List<String> games, File tmp) {
+        AlertDialog.Builder b = dialog(archiveName);
+        android.content.Context c = b.getContext();
+        android.widget.LinearLayout box = new android.widget.LinearLayout(c);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int)(20 * getResources().getDisplayMetrics().density);
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(c, android.R.layout.simple_list_item_1, new ArrayList<>(games));
+        if (games.size() > 8) {
+            android.widget.EditText search = new android.widget.EditText(c);
+            search.setHint("Search " + games.size() + " games");
+            search.setSingleLine(true);
+            search.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence t, int a, int n, int m) {}
+                // every word typed, anywhere in the name ("mower" finds Lucky_Lawn_Mower_VT09)
+                public void onTextChanged(CharSequence t, int a, int n, int m) {
+                    String[] words = t.toString().toLowerCase(Locale.ROOT).trim().split("[\\s_]+");
+                    adapter.clear();
+                    for (String g : games) {
+                        String name = g.toLowerCase(Locale.ROOT);
+                        boolean all = true;
+                        for (String w : words) if (!name.contains(w)) all = false;
+                        if (all) adapter.add(g);
+                    }
+                }
+                public void afterTextChanged(android.text.Editable t) {}
+            });
+            android.widget.FrameLayout frame = new android.widget.FrameLayout(c);
+            frame.setPadding(pad, pad / 2, pad, 0);
+            frame.addView(search);
+            box.addView(frame);
+        }
+        android.widget.ListView list = new android.widget.ListView(c);
+        list.setAdapter(adapter);
+        box.addView(list);
+        final boolean[] chosen = {false};
+        AlertDialog d = show(b.setView(box).setNegativeButton("Cancel", null), () -> {
+            if (chosen[0]) return;
+            archive.close();
+            tmp.delete();
+        });
+        list.setOnItemClickListener((parent, v, pos, id) -> {
+            String entry = adapter.getItem(pos);
+            chosen[0] = true;
+            busy = true;
+            d.dismiss();
+            new Thread(() -> {
+                File out = null;
+                String why = null;
+                try {
+                    out = archive.extract(entry, romsDir());
+                } catch (Exception | LinkageError e) {
+                    why = e.getMessage() != null ? e.getMessage() : e.toString();
+                }
+                archive.close();
+                tmp.delete();
+                File f = out;
+                String w = why;
+                runOnUiThread(() -> {
+                    busy = false;
+                    if (f != null) openGame(f);
+                    else Toast.makeText(this, "Could not unpack " + entry + ": " + w, Toast.LENGTH_LONG).show();
+                    closed();
+                });
+            }).start();
+        });
+    }
+
+    // ZIP, 7z (Android 7.0 or newer) and gzip, recognised by their contents
+    private abstract static class Archive {
+        abstract List<String> names() throws IOException;	// the files in it
+        abstract InputStream read(String name) throws IOException;
+        void close() {}
+
+        static Archive open(File f, String name) throws IOException {
+            byte[] h = new byte[8];
+            int n;
+            try (InputStream in = new FileInputStream(f)) { n = in.read(h); }
+            if (n >= 4 && h[0] == 'P' && h[1] == 'K' && h[2] == 3 && h[3] == 4) return new Zip(f);
+            if (n >= 6 && h[0] == '7' && h[1] == 'z' && (h[2] & 0xFF) == 0xBC && (h[3] & 0xFF) == 0xAF) {
+                if (android.os.Build.VERSION.SDK_INT < 24) throw new IOException("7z archives need Android 7.0 or newer; use a ZIP");
+                return new SevenZ(f);
+            }
+            if (n >= 2 && (h[0] & 0xFF) == 0x1F && (h[1] & 0xFF) == 0x8B) return new Gzip(f, name);
+            if (n >= 4 && h[0] == 'R' && h[1] == 'a' && h[2] == 'r' && h[3] == '!') throw new IOException("RAR archives are not supported; use ZIP or 7z");
+            return null;
+        }
+
+        // the games, or every file when none has a game's extension
+        List<String> games() throws IOException {
+            List<String> all = names(), games = new ArrayList<>();
+            for (String e : all) if (isGame(e)) games.add(e);
+            List<String> out = games.isEmpty() ? all : games;
+            java.util.Collections.sort(out, String.CASE_INSENSITIVE_ORDER);
+            return out;
+        }
+
+        File extract(String name, File dir) throws IOException {
+            File out = new File(dir, baseName(name));
+            try (InputStream in = read(name); OutputStream o = new FileOutputStream(out)) {
                 copy(in, o);
             }
             return out;
-        } catch (Exception e) {
-            Toast.makeText(this, "Could not open " + name + ": " + e.getMessage(), Toast.LENGTH_LONG).show();
-            return null;
         }
+    }
+
+    private static class Zip extends Archive {
+        final java.util.zip.ZipFile zip;
+        Zip(File f) throws IOException {
+            java.util.zip.ZipFile z;
+            try {
+                z = new java.util.zip.ZipFile(f);
+                for (java.util.Enumeration<? extends ZipEntry> e = z.entries(); e.hasMoreElements(); ) e.nextElement();
+            } catch (IllegalArgumentException e) {	// names that are not UTF-8: old DOS tools wrote code page 437
+                if (android.os.Build.VERSION.SDK_INT < 24) throw new IOException("its file names are not UTF-8");
+                z = new java.util.zip.ZipFile(f, java.nio.charset.Charset.forName("IBM437"));
+            }
+            zip = z;
+        }
+        List<String> names() {
+            List<String> l = new ArrayList<>();
+            for (java.util.Enumeration<? extends ZipEntry> e = zip.entries(); e.hasMoreElements(); ) {
+                ZipEntry z = e.nextElement();
+                if (!z.isDirectory()) l.add(z.getName());
+            }
+            return l;
+        }
+        InputStream read(String name) throws IOException {
+            ZipEntry z = zip.getEntry(name);
+            if (z == null) throw new IOException("not in the archive");
+            return zip.getInputStream(z);
+        }
+        void close() {
+            try { zip.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private static class SevenZ extends Archive {
+        final org.apache.commons.compress.archivers.sevenz.SevenZFile sz;
+        @SuppressWarnings("deprecation")
+        SevenZ(File f) throws IOException {
+            sz = new org.apache.commons.compress.archivers.sevenz.SevenZFile(new FileInputStream(f).getChannel());
+        }
+        List<String> names() {
+            List<String> l = new ArrayList<>();
+            for (org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry e : sz.getEntries())
+                if (!e.isDirectory() && e.hasStream()) l.add(e.getName());
+            return l;
+        }
+        InputStream read(String name) throws IOException {
+            for (org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry e : sz.getEntries())
+                if (name.equals(e.getName())) return sz.getInputStream(e);
+            throw new IOException("not in the archive");
+        }
+        void close() {
+            try { sz.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private static class Gzip extends Archive {
+        final File file;
+        final String inner;
+        Gzip(File f, String name) {
+            file = f;
+            String n = name.toLowerCase(Locale.ROOT).endsWith(".gz") ? name.substring(0, name.length() - 3) : name;
+            inner = n.isEmpty() ? "game.nes" : n;
+        }
+        List<String> names() { return new ArrayList<>(java.util.Collections.singletonList(inner)); }
+        InputStream read(String name) throws IOException { return new java.util.zip.GZIPInputStream(new FileInputStream(file)); }
     }
 
     // BIOS files go to files/BIOS under the name Furbtendulator looks for
@@ -239,8 +450,7 @@ public class FurbActivity extends SDLActivity {
         picking = false;
         Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
         if (uri != null && request == PICK_GAME) {
-            File f = importGame(uri);
-            if (f != null) nativeCommand("open " + f.getAbsolutePath());
+            openPicked(uri);
         } else if (uri != null && request == PICK_BIOS) {
             importBios(uri);
         }
@@ -276,22 +486,28 @@ public class FurbActivity extends SDLActivity {
 
     // The emulator stays paused while any menu or the file picker is open.
     private void closed() {
-        if (openDialogs == 0 && !picking) nativeCommand("resume");
+        if (openDialogs == 0 && !picking && !busy) nativeCommand("resume");
     }
 
     private AlertDialog.Builder dialog(String title) {
         return new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert).setTitle(title);
     }
 
-    private void show(AlertDialog.Builder b) {
+    private AlertDialog show(AlertDialog.Builder b) {
+        return show(b, null);
+    }
+
+    private AlertDialog show(AlertDialog.Builder b, Runnable dismissed) {
         AlertDialog d = b.create();
-        openDialogs++;
+        if (openDialogs++ == 0) nativeCommand("pause");	// (already paused when the native side asked for the menu)
         d.setOnDismissListener(x -> {
             openDialogs--;
+            if (dismissed != null) dismissed.run();
             // (posted: a click that opens the next menu or the picker does so first)
             ui.post(this::closed);
         });
         d.show();
+        return d;
     }
 
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());

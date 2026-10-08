@@ -192,8 +192,18 @@ bool gun_trigger = false;
 int gun_x = 0, gun_y = 0;
 
 std::string rom_path, rom_name;
-int nsf_song = 1;
 std::vector<uint8_t> pending_audio;
+std::vector<int16_t> scope;		// the last frame's sound, for the NSF player's waveform
+
+// The NSF player: Furbtendulator's NSF pack runs the music and keeps its
+// title, artist, track names and Play/Stop/song controls in its control
+// window (IDD_NSF; headless here, see host_cli.cpp), which this reads and
+// clicks like the Windows dialog's user would.
+int nsf_song = 1;
+bool nsf_playing = false;
+long nsf_frames = 0;		// since Play
+enum { NSF_DLG = 101, NSF_TITLE = 1000, NSF_ARTIST = 1001, NSF_COPYRIGHT = 1002, NSF_PLAY = 1005, NSF_STOP = 1006,
+       NSF_SELECT = 1007, NSF_CHIP = 1013, NSF_TRACK_NAME = 1015 };
 
 bool hires(void) { return RI.ConsoleType == CONSOLE_VT369 && (reg2000[0x1C] & 0x04); }
 
@@ -250,12 +260,19 @@ void grab_picture(void) {
 }
 
 bool loaded(void) { return NES::ROMLoaded && PPU::PPU[0]; }
+bool is_nsf(void) { return loaded() && RI.ROMType == ROM_NSF; }
+std::string nsf_field(int id) {
+	HWND d = FurbHost::modeless(NSF_DLG);
+	return d ? furb_narrow(FurbHost::get_text(d, id).c_str()) : "";
+}
 
 std::string base_name(const std::string &p) {
 	std::string n = p.substr(p.find_last_of('/') + 1);
 	size_t dot = n.find_last_of('.');
 	return dot == std::string::npos || dot == 0 ? n : n.substr(0, dot);
 }
+
+void nsf_select(int song);
 
 bool open_rom(const std::string &path) {
 	std::wstring w = furb_widen(path.c_str());
@@ -272,9 +289,12 @@ bool open_rom(const std::string &path) {
 	rom_path = path;
 	rom_name = base_name(path);
 	nsf_song = RI.ROMType == ROM_NSF ? RI.NSF_InitSong : 1;
+	nsf_playing = false;
 	Sound::SoundON();
 	pending_audio.clear();
-	osd(rom_name);
+	scope.clear();
+	if (is_nsf()) nsf_select(nsf_song);		// (Furbtendulator waits for Play)
+	else osd(rom_name);
 	return true;
 }
 
@@ -282,14 +302,25 @@ std::string state_path(int slot) {
 	return data_dir + "/States/" + furb_narrow(States::BaseFilename) + ".ns" + std::to_string(slot);
 }
 
+// play song N (1-based), from its start
 void nsf_select(int song) {
-	HWND d = FurbHost::modeless(101);			// the NSF pack's window (IDD_NSF)
-	if (!d || song < 1 || song > RI.NSF_NumSongs) return;
+	HWND d = FurbHost::modeless(NSF_DLG);
+	if (!d) return;
+	song = SDL_clamp(song, 1, (int)RI.NSF_NumSongs);
 	nsf_song = song;
-	FurbHost::set_pos(d, 1007, song - 1);			// IDC_NSF_SELECT
-	SendMessage(d, WM_HSCROLL, 0, (LPARAM)GetDlgItem(d, 1007));
-	FurbHost::click(d, 1005);				// IDC_NSF_PLAY
-	osd("SONG " + std::to_string(song) + " / " + std::to_string(RI.NSF_NumSongs));
+	FurbHost::set_pos(d, NSF_SELECT, song - 1);
+	SendMessage(d, WM_HSCROLL, 0, (LPARAM)GetDlgItem(d, NSF_SELECT));
+	FurbHost::click(d, NSF_PLAY);
+	nsf_playing = true;
+	nsf_frames = 0;
+}
+void nsf_stop(void) {
+	if (HWND d = FurbHost::modeless(NSF_DLG)) FurbHost::click(d, NSF_STOP);
+	nsf_playing = false;
+}
+void nsf_toggle(void) {
+	if (nsf_playing) nsf_stop();
+	else nsf_select(nsf_song);
 }
 
 // "key=value;..." for the menu: what is loaded and what applies to it
@@ -301,6 +332,7 @@ std::string menu_state(void) {
 		s += ";vs=" + std::to_string(RI.ConsoleType == CONSOLE_VS ? (RI.INES2_VSFlags == VS_DUAL || RI.INES2_VSFlags == VS_BUNGELING ? 2 : 1) : 0);
 		s += ";nsf=" + std::to_string(RI.ROMType == ROM_NSF ? RI.NSF_NumSongs : 0);
 		s += ";song=" + std::to_string(nsf_song);
+		s += ";playing=" + std::to_string(nsf_playing ? 1 : 0);
 		s += ";region=" + std::to_string(NES::CurRegion == Settings::REGION_PAL ? 1 : NES::CurRegion == Settings::REGION_DENDY ? 2 : 0);
 		s += ";slot=" + std::to_string(States::SelSlot);
 		std::string used;
@@ -313,6 +345,11 @@ std::string menu_state(void) {
 	}
 	for (int i = 0; i < P_COUNT; i++) s += std::string(";") + pref_keys[i] + "=" + std::to_string(pref(i));
 	return s;
+}
+
+void keep_scope(void) {
+	if (pending_audio.size() < 4) return;
+	scope.assign((const int16_t *)pending_audio.data(), (const int16_t *)pending_audio.data() + pending_audio.size() / 2);
 }
 
 bool paused = false;		// the menu is open
@@ -376,6 +413,8 @@ void run_command(const std::string &line) {
 	} else if (cmd == "nsf-song") nsf_select(n);
 	else if (cmd == "nsf-next") nsf_select(nsf_song + 1);
 	else if (cmd == "nsf-prev") nsf_select(nsf_song - 1);
+	else if (cmd == "nsf-play") nsf_select(nsf_song);
+	else if (cmd == "nsf-stop") nsf_stop();
 	poll_titlebar();
 }
 
@@ -465,6 +504,7 @@ struct Layout {
 	Box game;
 	Circle dpad, a, b;
 	Box select, start, menu, ff;
+	Box prev, play, next;		// the NSF player's
 } L;
 
 float picture_aspect(void) {
@@ -490,6 +530,10 @@ void layout(int w, int h) {
 		L.start = {u * 0.53f, sy, u * 0.17f, u * 0.075f};
 		L.menu = {u * 0.03f, top + u * 0.03f, u * 0.17f, u * 0.075f};
 		L.ff = {u * 0.80f, top + u * 0.03f, u * 0.17f, u * 0.075f};
+		float bw = u * 0.27f, bh = u * 0.15f, gap = u * 0.04f;
+		L.prev = {(w - 3 * bw - 2 * gap) / 2, cy - bh / 2, bw, bh};
+		L.play = {L.prev.x + bw + gap, L.prev.y, bw, bh};
+		L.next = {L.play.x + bw + gap, L.prev.y, bw, bh};
 	} else {		// landscape: the picture in the middle, the controls over its sides
 		float gh = (float)h, gw = gh * ar;
 		if (gw > w) { gw = (float)w; gh = gw / ar; }
@@ -502,6 +546,10 @@ void layout(int w, int h) {
 		L.start = {w - u * 0.25f, u * 0.89f, u * 0.2f, u * 0.08f};
 		L.menu = {u * 0.03f, u * 0.03f, u * 0.2f, u * 0.08f};
 		L.ff = {w - u * 0.23f, u * 0.03f, u * 0.2f, u * 0.08f};
+		float bw = u * 0.3f, bh = u * 0.13f, gap = u * 0.05f;
+		L.prev = {(w - 3 * bw - 2 * gap) / 2, h - bh - u * 0.04f, bw, bh};
+		L.play = {L.prev.x + bw + gap, L.prev.y, bw, bh};
+		L.next = {L.play.x + bw + gap, L.prev.y, bw, bh};
 	}
 }
 
@@ -537,6 +585,7 @@ uint32_t touch_at(float x, float y) {
 	return b;
 }
 bool on_control(float x, float y) {
+	if (is_nsf()) return L.menu.hit(x, y) || L.prev.hit(x, y) || L.play.hit(x, y) || L.next.hit(x, y);
 	if (L.menu.hit(x, y) || L.ff.hit(x, y)) return true;
 	return pref(P_CONTROLS) && (touch_at(x, y) || dist(x, y, L.dpad) < L.dpad.r * 1.35f);
 }
@@ -552,6 +601,7 @@ void update_touch(void) {
 	touch_bits = 0;
 	touch_ff = false;
 	gun_trigger = false;
+	if (is_nsf()) return;		// (the player's buttons act when touched, in finger_event)
 	for (auto &f : fingers) {
 		float x = f.second.x, y = f.second.y;
 		if (pref(P_CONTROLS)) touch_bits |= touch_at(x, y);
@@ -573,6 +623,9 @@ void finger_event(const SDL_Event &e) {
 	if (e.type == SDL_FINGERDOWN) {
 		if (!controls_visible) controls_visible = true;
 		else if (L.menu.hit(x, y)) { buzz(); show_menu(); }
+		else if (is_nsf() && L.prev.hit(x, y)) { buzz(); nsf_select(nsf_song - 1); }
+		else if (is_nsf() && L.play.hit(x, y)) { buzz(); nsf_toggle(); }
+		else if (is_nsf() && L.next.hit(x, y)) { buzz(); nsf_select(nsf_song + 1); }
 		else if (!loaded() && !on_control(x, y)) show_menu();	// "tap to open a game"
 	}
 	update_touch();
@@ -658,6 +711,13 @@ void draw_controls(uint32_t held) {
 		label(c, text, on ? ink_lit : ink);
 	};
 	button(L.menu, "MENU", false);
+	if (is_nsf()) {
+		auto held = [&](const Box &b) { for (auto &f : fingers) if (b.hit(f.second.x, f.second.y)) return true; return false; };
+		button(L.prev, "PREV", held(L.prev));
+		button(L.play, nsf_playing ? "STOP" : "PLAY", held(L.play));
+		button(L.next, "NEXT", held(L.next));
+		return;
+	}
 	button(L.ff, ">>", fast_forward);
 	if (!pref(P_CONTROLS)) return;
 	// d-pad: a ring with a cross; the held directions light up
@@ -679,13 +739,78 @@ void draw_controls(uint32_t held) {
 int shown_fps = 0, fps_frames = 0;
 Uint32 fps_since = 0;
 
+// Text the font can draw: other characters (accents, Japanese, ...) show as '?'
+std::string printable(const std::string &s) {
+	std::string out;
+	for (size_t i = 0; i < s.size(); i++) {
+		unsigned char c = (unsigned char)s[i];
+		if (c < 0x80) { out += (char)c; continue; }
+		while (i + 1 < s.size() && ((unsigned char)s[i + 1] & 0xC0) == 0x80) i++;	// one UTF-8 character
+		out += '?';
+	}
+	return out;
+}
+// one line, centred in r at y, as large as fits (up to maxpx font pixels)
+void line(const Box &r, std::string t, float y, float maxpx, SDL_Color c) {
+	t = printable(t);
+	if (t.empty()) return;
+	float room = r.w * 0.92f;
+	float px = SDL_min(maxpx, SDL_floorf(room / (6.0f * t.size())));
+	if (px < 2) {		// too long even small: cut it short
+		px = SDL_min(maxpx, 2.0f);
+		size_t fit = (size_t)(room / (6 * px));
+		if (fit > 3 && t.size() > fit) t = t.substr(0, fit - 3) + "...";
+	}
+	draw_text(t, r.x + (r.w - text_width(t, px)) / 2, r.y + y, px, c);
+}
+
+// The NSF player: what is playing, and the sound's waveform
+void draw_nsf(void) {
+	const Box &r = L.game;
+	fill_box(r, {18, 16, 34, 255});
+	float h = r.h;
+	SDL_Color white = {240, 240, 245, 255}, soft = {170, 170, 190, 255}, accent = {255, 205, 90, 255};
+	auto field = [](int id) { std::string t = nsf_field(id); return t == "<?>" || t == "?" ? std::string() : t; };
+	std::string title = field(NSF_TITLE);
+	line(r, title.empty() ? rom_name : title, h * 0.06f, h / 90, white);
+	line(r, field(NSF_ARTIST), h * 0.19f, h / 150, soft);
+	line(r, field(NSF_COPYRIGHT), h * 0.25f, h / 150, soft);
+	std::string chip = field(NSF_CHIP);
+	if (!chip.empty()) line(r, "SOUND: " + chip, h * 0.31f, h / 170, soft);
+	line(r, "SONG " + std::to_string(nsf_song) + " / " + std::to_string(RI.NSF_NumSongs), h * 0.40f, h / 75, accent);
+	line(r, field(NSF_TRACK_NAME), h * 0.52f, h / 140, white);
+	double fps = NES::CurRegion == Settings::REGION_NTSC ? 39375000.0 / 655171 : 26601712.0 / 531960;
+	int secs = (int)(nsf_frames / fps);
+	char t[32];
+	snprintf(t, sizeof t, "%d:%02d", secs / 60, secs % 60);
+	line(r, nsf_playing ? std::string("PLAYING  ") + t : "STOPPED", h * 0.60f, h / 150, nsf_playing ? white : soft);
+	// waveform (above the buttons in landscape, where they lie over the picture)
+	float top = r.y + h * 0.69f, bottom = r.y + h * (L.w > L.h ? 0.78f : 0.95f), mid = (top + bottom) / 2;
+	SDL_SetRenderDrawColor(ren, 60, 60, 90, 255);
+	SDL_RenderDrawLineF(ren, r.x + r.w * 0.05f, mid, r.x + r.w * 0.95f, mid);
+	if (nsf_playing && scope.size() > 2) {
+		const int N = 300;
+		SDL_FPoint p[N];
+		int peak = 1500;		// (scaled to the loudness, so quiet songs show too)
+		for (int16_t v : scope) peak = SDL_max(peak, abs(v));
+		for (int i = 0; i < N; i++) {
+			int16_t v = scope[(size_t)i * scope.size() / N];
+			p[i] = {r.x + r.w * (0.05f + 0.9f * i / (N - 1)), mid - 0.9f * v / peak * (bottom - top) / 2};
+		}
+		SDL_SetRenderDrawColor(ren, 120, 230, 160, 255);
+		SDL_RenderDrawLinesF(ren, p, N);
+	}
+}
+
 void draw(void) {
 	int w, h;
 	SDL_GetRendererOutputSize(ren, &w, &h);
 	layout(w, h);
 	SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
 	SDL_RenderClear(ren);
-	if (loaded() && pic_w) {
+	if (is_nsf()) {
+		draw_nsf();
+	} else if (loaded() && pic_w) {
 		if (!tex || tex_w != pic_w || tex_h != pic_h || tex_smooth != pref(P_SMOOTH)) {
 			if (tex) SDL_DestroyTexture(tex);
 			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, pref(P_SMOOTH) ? "1" : "0");
@@ -786,7 +911,8 @@ int main(int argc, char **argv) {
 		else if (a == "-h" || a == "--help") {
 			printf("usage: furb_touch [ROM] [--data-dir DIR] [--size WxH]\n"
 			       "  commands on stdin: open PATH | save N | load N | reset | hardreset | region 0|1|2\n"
-			       "  | fds-insert | fds-eject | fds-next | fds-prev | coin1 | coin2 | nsf-song N\n"
+			       "  | fds-insert | fds-eject | fds-next | fds-prev | coin1 | coin2\n"
+			       "  | nsf-song N | nsf-next | nsf-prev | nsf-play | nsf-stop\n"
 			       "  | pref NAME VALUE | menu | state | pause | resume | close | quit\n");
 			return 0;
 		} else first_rom = a;
@@ -859,7 +985,7 @@ int main(int argc, char **argv) {
 	if (!first_rom.empty()) queue_command("open " + first_rom);
 	std::string c;
 	while (next_command(c)) run_command(c);
-	if (!loaded()) show_menu();
+	if (!loaded() && !paused) show_menu();	// (paused: the activity is opening a game already)
 
 	Uint64 freq = SDL_GetPerformanceFrequency(), clock_start = SDL_GetPerformanceCounter();
 	double clock_frames = 0;
@@ -927,6 +1053,20 @@ int main(int argc, char **argv) {
 		}
 		if (combo && !menu_combo_held) show_menu();	// Select+Start: pads without a menu button
 		menu_combo_held = combo;
+		if (is_nsf()) {
+			// the pad drives the player: left/right the song (up/down by ten),
+			// A or Start play/stop, B stop
+			static uint32_t was = 0;
+			uint32_t now = player_bits[0] | player_bits[1] | player_bits[2] | player_bits[3], hit = now & ~was;
+			was = now;
+			if (hit & 1 << B_LEFT) nsf_select(nsf_song - 1);
+			if (hit & 1 << B_RIGHT) nsf_select(nsf_song + 1);
+			if (hit & 1 << B_UP) nsf_select(nsf_song + 10);
+			if (hit & 1 << B_DOWN) nsf_select(nsf_song - 10);
+			if (hit & (1 << B_A | 1 << B_START)) nsf_toggle();
+			if (hit & 1 << B_B) nsf_stop();
+			memset(player_bits, 0, sizeof player_bits);
+		}
 		memset(Controllers::KeyState, 0, sizeof Controllers::KeyState);
 		for (auto &k : dik_of) if (keys[k.first]) Controllers::KeyState[k.second] = 0x80;
 		fast_forward = touch_ff || ff_key || pad_ff;
@@ -946,6 +1086,7 @@ int main(int argc, char **argv) {
 					run_frame();
 					ran++;
 					SDL_QueueAudio(audio_dev, pending_audio.data(), (Uint32)pending_audio.size());
+					keep_scope();
 					pending_audio.clear();
 				}
 			}
@@ -957,7 +1098,9 @@ int main(int argc, char **argv) {
 				clock_start = SDL_GetPerformanceCounter();
 				clock_frames = 0;
 			}
+			keep_scope();
 			pending_audio.clear();
+			if (nsf_playing) nsf_frames += ran;
 			if (ran) {
 				grab_picture();
 				poll_titlebar();
