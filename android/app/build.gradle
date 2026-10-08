@@ -49,15 +49,27 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+        // java.nio.file for Android 7 and older (Commons Compress uses it)
+        coreLibraryDesugaringEnabled true
     }
 
     packagingOptions {
         jniLibs {
             useLegacyPackaging false   // stored uncompressed and 16 KiB aligned
         }
+        resources {
+            excludes += ['META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/DEPENDENCIES', 'META-INF/versions/**']
+        }
     }
 
     lint {
         abortOnError false
     }
+}
+
+dependencies {
+    // 7z archives (ZIP and gzip come with Android)
+    implementation 'org.apache.commons:commons-compress:1.27.1'
+    implementation 'org.tukaani:xz:1.10'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'
 }

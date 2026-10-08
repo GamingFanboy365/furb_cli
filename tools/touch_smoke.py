@@ -6,7 +6,8 @@ come from stdin.  This starts it on a private X server, in a landscape and a
 portrait window, and checks that it opens a ROM from a command, draws frames,
 that the on-screen A button and the keyboard reach the pad, that the MENU
 button asks for the menu, that save states, reset and the settings work, and
-that it exits cleanly with its settings saved.  Needs Xvfb, xdotool,
+that it exits cleanly with its settings saved; and that the NSF player plays a
+(generated) NSF and changes and stops songs.  Needs Xvfb, xdotool,
 openbox and ImageMagick's import; SDL's dummy audio driver stands in for a
 sound card.
 
@@ -47,6 +48,14 @@ prg[0x40:0x42] = bytes([0x0F, 0x21])
 prg[0x3FFA:0x4000] = struct.pack('<HHH', 0xC012, 0xC000, 0xC012)
 rom = os.path.join(T, 'pad game.nes')		# (a space in the name, as Android file names often have)
 open(rom, 'wb').write(b'NES\x1a\x01\x01' + bytes(10) + bytes(prg) + bytes(8192))
+
+# an NSF of three songs: INIT starts a square wave, PLAY does nothing
+nsf_code = bytes([0xA9, 0x0F, 0x8D, 0x15, 0x40, 0xA9, 0xBF, 0x8D, 0x00, 0x40, 0xA9, 0x40, 0x8D, 0x02, 0x40,
+                  0xA9, 0x00, 0x8D, 0x03, 0x40, 0x60]).ljust(0x20, b'\xea') + b'\x60'
+nsf = os.path.join(T, 'smoke.nsf')
+open(nsf, 'wb').write(b'NESM\x1a\x01\x03\x01' + struct.pack('<HHH', 0x8000, 0x8000, 0x8020) +
+                      b'Smoke Test'.ljust(32, b'\0') + b'touch_smoke'.ljust(32, b'\0') + b'2026'.ljust(32, b'\0') +
+                      struct.pack('<H', 16639) + bytes(8) + struct.pack('<H', 19997) + bytes(6) + nsf_code)
 
 env = dict(os.environ, DISPLAY=':78', SDL_AUDIODRIVER='dummy')
 xvfb = subprocess.Popen(['Xvfb', ':78', '-screen', '0', '1280x1024x24'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -174,9 +183,67 @@ def run(w, h, tag):
 		if furb.poll() is None:
 			furb.kill()
 
+# The NSF player: it plays on opening, NEXT changes the song, a stop stops it
+def run_nsf():
+	w, h = 540, 960
+	furb = subprocess.Popen([a.furb, nsf, '--data-dir', os.path.join(T, 'data'), '--size', '%dx%d' % (w, h)], env=env,
+	                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(os.path.join(T, 'nsf.log'), 'w'), text=True)
+	lines = queue.Queue()
+	threading.Thread(target=lambda: [lines.put(l.strip()) for l in furb.stdout], daemon=True).start()
+	def state():
+		furb.stdin.write('state\n')
+		furb.stdin.flush()
+		end = time.time() + 5
+		while time.time() < end:
+			try:
+				l = lines.get(timeout=0.2)
+			except queue.Empty:
+				continue
+			if l.startswith('state:'):
+				return l
+		return ''
+	try:
+		win = None
+		for _ in range(50):
+			win = xdo('search', '--onlyvisible', '--classname', 'furb_touch')
+			if win: break
+			time.sleep(0.2)
+		check('[nsf] window shows', bool(win))
+		if not win:
+			return
+		win = win.split()[0]
+		time.sleep(1.5)
+		st = state()
+		check('[nsf] the NSF plays on opening', 'nsf=3' in st and 'song=1' in st and 'playing=1' in st, st)
+		geo = xdo('getwindowgeometry', win)
+		pos = [int(v) for v in geo.split('Position: ')[1].split()[0].split(',')]
+		shot('nsf-1-player')
+		check('[nsf] the player screen is drawn', pixel(pos[0] + 6, pos[1] + 6) == (18 * 257, 16 * 257, 34 * 257) or
+		      pixel(pos[0] + 6, pos[1] + 6) == (18, 16, 34), str(pixel(pos[0] + 6, pos[1] + 6)))
+		# NEXT, as main.cpp lays it out in a portrait window
+		gh = w / (256 * 8 / 7 / 240); cy = gh + (h - gh) * 0.45
+		bw, gap = w * 0.27, w * 0.04
+		nx = (w - 3 * bw - 2 * gap) / 2 + 2 * (bw + gap) + bw / 2
+		xdo('mousemove', str(int(pos[0] + nx)), str(int(pos[1] + cy))); xdo('click', '1'); time.sleep(1)
+		st = state()
+		check('[nsf] NEXT plays song 2', 'song=2' in st and 'playing=1' in st, st)
+		furb.stdin.write('nsf-stop\n'); furb.stdin.flush(); time.sleep(0.5)
+		st = state()
+		check('[nsf] stop', 'playing=0' in st, st)
+		furb.stdin.write('quit\n'); furb.stdin.flush()
+		try:
+			code = furb.wait(10)
+		except subprocess.TimeoutExpired:
+			code = None
+		check('[nsf] quits cleanly', code == 0, str(code))
+	finally:
+		if furb.poll() is None:
+			furb.kill()
+
 try:
 	run(960, 720, 'landscape')
 	run(540, 960, 'portrait')
+	run_nsf()
 finally:
 	wm.kill()
 	xvfb.kill()
